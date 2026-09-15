@@ -43,7 +43,7 @@ jobs:
             bash -c "bash download-libs.sh && make clean apk"
 
       - name: Sign APK
-        if: ${{ secrets.SIGNING_KEY != '' }}
+        if: ${{ env.SIGNING_KEY_EXISTS == 'true' }}
         uses: ookami125/apksigner-android@v1
         with:
           releaseDirectory: build
