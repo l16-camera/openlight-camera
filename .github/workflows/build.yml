@@ -1,4 +1,5 @@
 name: Build Light Camera APK
+
 on:
   push:
     branches: [master, main]
@@ -18,7 +19,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/actions/checkout@v4
+        uses: actions/checkout@v4
 
       - name: Compute CalVer version
         id: calver
@@ -32,15 +33,18 @@ jobs:
       - name: Build Docker image
         run: docker build -f docker/Dockerfile -t openlight-decomp-tools:latest .
 
+      - name: Download libraries
+        run: bash download-libs.sh
+
       - name: Check orphan smali
         run: bash scripts/check-orphan-smali.sh
 
-      - name: Build APK inside Docker
+      - name: Build APK
         run: |
-          docker run --rm \
+          docker run --rm --entrypoint bash \
             -v "$PWD":/workspace -w /workspace \
             openlight-decomp-tools:latest \
-            bash -c "bash download-libs.sh && make clean apk"
+            -c "make clean apk"
 
       - name: Sign APK
         if: ${{ env.SIGNING_KEY_EXISTS == 'true' }}
