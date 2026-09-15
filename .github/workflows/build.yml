@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Light Camera APK
 on:
   push:
     branches: [master, main]
