@@ -1,5 +1,4 @@
 name: Build APK
-
 on:
   push:
     branches: [master, main]
@@ -19,7 +18,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/actions/checkout@v4
 
       - name: Compute CalVer version
         id: calver
@@ -33,18 +32,15 @@ jobs:
       - name: Build Docker image
         run: docker build -f docker/Dockerfile -t openlight-decomp-tools:latest .
 
-      - name: Download libraries
-        run: bash download-libs.sh
-
       - name: Check orphan smali
         run: bash scripts/check-orphan-smali.sh
 
-      - name: Build APK
+      - name: Build APK inside Docker
         run: |
-          docker run --rm --entrypoint bash \
+          docker run --rm \
             -v "$PWD":/workspace -w /workspace \
             openlight-decomp-tools:latest \
-            -c "make clean apk"
+            bash -c "bash download-libs.sh && make clean apk"
 
       - name: Sign APK
         if: ${{ secrets.SIGNING_KEY != '' }}
