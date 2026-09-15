@@ -7,11 +7,11 @@ LIBS="$(cd "$(dirname "$0")" && pwd)/libs"
 mkdir -p "$LIBS"
 
 ok()  { echo "  OK  $1"; }
-fail(){ echo "  FAIL $1"; }
+fail(){ echo "  FAIL $1" >&2; exit 1; }
 
 dl_jar() {
     local name="$1" url="$2"
-    if wget -q -O "$LIBS/$name" "$url"; then
+    if curl -fsSL -o "$LIBS/$name" "$url"; then
         ok "$name"
     else
         fail "$name ($url)"
@@ -22,7 +22,7 @@ dl_aar() {
     local name="$1" url="$2"
     local tmp
     tmp=$(mktemp /tmp/aar.XXXXXX)
-    if wget -q -O "$tmp" "$url"; then
+    if curl -fsSL -o "$tmp" "$url"; then
         if unzip -p "$tmp" classes.jar > "$LIBS/$name"; then
             ok "$name"
         else
@@ -67,7 +67,7 @@ dl_aar  "multidex.jar"                   "https://dl.google.com/dl/android/maven
 mkdir -p "$LIBS/provided"
 echo ""
 echo "=== Downloading provided (compile-time only) JARs ==="
-if wget -q -O /tmp/cl.aar "https://dl.google.com/dl/android/maven2/com/android/support/constraint/constraint-layout/1.1.3/constraint-layout-1.1.3.aar"; then
+if curl -fsSL -o /tmp/cl.aar "https://dl.google.com/dl/android/maven2/com/android/support/constraint/constraint-layout/1.1.3/constraint-layout-1.1.3.aar"; then
     unzip -p /tmp/cl.aar classes.jar > "$LIBS/provided/constraint-layout.jar" && ok "provided/constraint-layout.jar"
     rm -f /tmp/cl.aar
 else
@@ -83,7 +83,7 @@ dl_aar  "arch-lifecycle-runtime.jar"     "$ARCH/lifecycle/runtime/1.0.3/runtime-
 
 echo ""
 echo "=== Downloading HockeyApp ==="
-if wget -q -O /tmp/hockey.aar "https://repo1.maven.org/maven2/net/hockeyapp/android/HockeySDK/5.2.0/HockeySDK-5.2.0.aar"; then
+if curl -fsSL -o /tmp/hockey.aar "https://repo1.maven.org/maven2/net/hockeyapp/android/HockeySDK/5.2.0/HockeySDK-5.2.0.aar"; then
     unzip -p /tmp/hockey.aar classes.jar > "$LIBS/hockeyapp-SDK.jar" && ok "hockeyapp-SDK.jar"
     rm -f /tmp/hockey.aar
 else

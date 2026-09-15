@@ -1,6 +1,6 @@
 FROM alpine:3.22.1
 
-RUN apk add --no-cache bash make openjdk17 gosu zip git nodejs npm wget
+RUN apk add --no-cache bash make openjdk17 gosu zip git wget
 RUN mkdir /tools/
 
 # Download and setup apktool
