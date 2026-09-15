@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Calendar versioning for openlight-camera APK builds.
 #
-# versionName: YYYY.MM.DD[.N]
-#   - CI builds:     YYYY.MM.DD.<GITHUB_RUN_NUMBER>
-#   - Tag builds:    vYYYY.MM.DD[.N]  →  YYYY.MM.DD[.N]
-#   - Local builds:  YYYY.MM.DD.0
+# versionName: YY.M.BUILD
+#   - CI builds:     YY.M.<GITHUB_RUN_NUMBER>
+#   - Tag builds:    vYY.M.BUILD  →  YY.M.BUILD
+#   - Local builds:  YY.M.0
 #
-# versionCode: YYYYMMDD * 100 + (build_number % 100)
-#   Monotonic within a day (up to 100 CI builds/day).
+# versionCode: YYMM * 10000 + BUILD_NUMBER
+#   Monotonic across the month and build count.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -24,7 +24,7 @@ fi
 resolve_version_name() {
   local ref_name="${GITHUB_REF_NAME:-}"
 
-  if [[ "$ref_name" =~ ^v([0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?)$ ]]; then
+  if [[ "$ref_name" =~ ^v([0-9]{2}\.[0-9]{1,2}\.[0-9]+)$ ]]; then
     echo "${BASH_REMATCH[1]}"
     return
   fi
@@ -34,18 +34,25 @@ resolve_version_name() {
     return
   fi
 
-  echo "$(date -u +%Y.%m.%d).${BUILD_NUMBER}"
+  local year month
+  year="$(date -u +%y)"
+  month="$(date -u +%m)"
+  month="${month#0}"
+  echo "${year}.${month}.${BUILD_NUMBER}"
 }
 
 VERSION_NAME="$(resolve_version_name)"
-if [[ "$VERSION_NAME" =~ ^([0-9]{4})\.([0-9]{2})\.([0-9]{2}) ]]; then
-  DATE_COMPACT="${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+if [[ "$VERSION_NAME" =~ ^([0-9]{2})\.([0-9]{1,2})\.([0-9]+)$ ]]; then
+  YY="${BASH_REMATCH[1]}"
+  MM="${BASH_REMATCH[2]}"
+  BUILD="${BASH_REMATCH[3]}"
+  DATE_COMPACT="${YY}$(printf '%02d' "$((10#$MM))")"
 else
-  echo "Error: version name must start with YYYY.MM.DD, got: ${VERSION_NAME}" >&2
+  echo "Error: version name must match YY.M.BUILD, got: ${VERSION_NAME}" >&2
   exit 1
 fi
 
-VERSION_CODE=$(( 10#${DATE_COMPACT} * 100 + (BUILD_NUMBER % 100) ))
+VERSION_CODE=$(( 10#${DATE_COMPACT} * 10000 + BUILD ))
 
 export VERSION_NAME VERSION_CODE
 
