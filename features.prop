@@ -22,14 +22,14 @@ feature.cli_support=true
 video.feature=true
 
 # CamcorderProfile quality index: 4=480p 5=720p 6=1080p 8=2160p 1=high (default: 6)
-video.quality=6
+video.quality=8
 
 # Video resolution override, WxH. Empty = use the CamcorderProfile size above.
 # Must be a size the camera actually offers; anything else fails prepare().
 # Supported: 3840x2160 2592x1944 2688x1512 2048x1536 1920x1080 1600x1200
 #            1440x1080 1280x960 1280x768 1280x720
 # 2688x1512 is the 16:9 step between 1080p and 4K ("1.5K").
-video.size=2688x1512
+video.size=3840x2160
 
 # Encoder bitrate override in bit/s (0 = scale from the profile by pixel count).
 # Hard ceiling is 42000000 per the device media_profiles.xml.
