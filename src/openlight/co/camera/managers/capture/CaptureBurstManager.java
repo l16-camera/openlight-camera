@@ -2,8 +2,11 @@ package openlight.co.camera.managers.capture;
 
 import android.hardware.camera2.CaptureRequest;
 import android.os.Environment;
+import android.util.Log;
 import java.io.File;
+import java.lang.reflect.Constructor;
 import openlight.co.camera.enums.BurstMode;
+import openlight.co.lib.utils.FeatureManager;
 import openlight.co.lib.content.CamPrefsFactory;
 import openlight.co.lib.content.Prefs;
 
@@ -12,6 +15,10 @@ public class CaptureBurstManager {
     private static final int BURST_SIX_SHOT_CAPTURE_INTENT = 12;
     private static final int BURST_THREE_SHOT_CAPTURE_INTENT = 13;
     private static final int BURST_TRANSFER_CAPTURE_INTENT = 11;
+
+    // Light's SDK refuses anything below 2 (CaptureRequest$Builder.setBurstFps).
+    private static final int BURST_FPS_MIN = 2;
+    private static final String TAG = "BurstFps";
 
     private static CaptureBurstManager sInstance;
 
@@ -74,6 +81,29 @@ public class CaptureBurstManager {
                 break;
         }
         builder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, captureIntent);
+        applyBurstFps(builder, captureIntent);
+    }
+
+    /**
+     * features.prop {@code burst.fps}: frame rate the ASIC uses for a burst.
+     * The HAL reads vendor tag co.light.burst_fps in translateLightCaptureIntent;
+     * nothing in Light's camera app ever set it. 0 leaves the request untouched.
+     */
+    private static void applyBurstFps(CaptureRequest.Builder builder, int captureIntent) {
+        int fps = FeatureManager.get().getInt("burst.fps", 0);
+        if (fps < BURST_FPS_MIN) {
+            return;
+        }
+        try {
+            Constructor<?> c = CaptureRequest.Key.class.getConstructor(String.class, Class.class);
+            @SuppressWarnings("unchecked")
+            CaptureRequest.Key<Integer> key =
+                    (CaptureRequest.Key<Integer>) c.newInstance("co.light.burst_fps", Integer.class);
+            builder.set(key, fps);
+            Log.i(TAG, "co.light.burst_fps=" + fps + " on capture intent " + captureIntent);
+        } catch (Throwable t) {
+            Log.e(TAG, "co.light.burst_fps not set", t);
+        }
     }
 
     public boolean getIfFetchRequest() {

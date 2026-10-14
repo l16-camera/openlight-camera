@@ -52,6 +52,11 @@ video.quality.selector.beta=true
 # Maximum video recording length in seconds (default: 25)
 video.length.max=25
 
+# --- Burst ---
+# ASIC frame rate for a burst (vendor tag co.light.burst_fps), min 2.
+# 0 = leave it to the camera (Light's app never set it).
+burst.fps=0
+
 # --- Face detection ---
 # Enable face detection (default: true)
 face.detect=true
