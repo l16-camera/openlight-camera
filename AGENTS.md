@@ -39,6 +39,7 @@
 | [calibration.md](calibration.md) | раздел `/lightcal`: зеркала, вспышка, заводские протоколы, карты дефектов |
 | [astro-app.md](astro-app.md) | отдельное астро-приложение: что доказано на железе, что открыто |
 | [astro-mode.md](astro-mode.md) | пространственный стекинг — складывать модули, а не время |
+| [hal-patching.md](hal-patching.md) | патч HAL и драйвера: root, verity, `capture_mask`, видео с нескольких модулей |
 | [questions-for-light.md](questions-for-light.md) | что спрашивать у бывшей команды Light, а что закрывать самим |
 | [scripts/lri-mono/README.md](scripts/lri-mono/README.md) | инструмент и методы извлечения |
 | `log/` | журнал сессий: что менялось и почему |
