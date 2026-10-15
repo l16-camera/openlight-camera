@@ -114,8 +114,11 @@ public enum CameraMode {
 
     public static CameraMode getModeByLabel(String label) {
         if (label != null) {
+            // Case-insensitive: the CI intent sends whatever the caller typed, and an
+            // uncaught miss here takes the whole app down through the restart handler.
+            String lower = label.toLowerCase();
             for (CameraMode mode : values()) {
-                if (label.contains(mode.toString().toLowerCase())) {
+                if (lower.contains(mode.toString().toLowerCase())) {
                     return mode;
                 }
             }

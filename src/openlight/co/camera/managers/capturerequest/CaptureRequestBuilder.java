@@ -60,11 +60,15 @@ public class CaptureRequestBuilder {
     }
 
     /**
-     * Every request that reaches the HAL passes through here, so monochrome mode is
+     * Every request that sets a focal length passes through here, so monochrome mode is
      * applied at this point: the focal length is snapped to a stop whose module group
      * carries a panchromatic sensor, and the viewfinder is turned grey to match what
      * the mode is actually recording. The hook belongs in ModeReqMgr, which is still
      * smali — move it there once that class is migrated.
+     *
+     * Outside the mode the effect is set back to OFF explicitly: builders are reused,
+     * and one left at MONO would keep a colour mode's viewfinder grey. Nothing else in
+     * the app asks for an effect, so OFF is never overriding a choice.
      */
     public static void setLensFocalLength(CaptureRequest.Builder builder, float length) {
         if (MonoMode.isActive()) {
@@ -73,6 +77,8 @@ public class CaptureRequestBuilder {
             LogUtil.d(TAG, "[MONO] focal " + length + " -> " + snapped
                     + ", module " + MonoMode.moduleFor(snapped * 10.0f) + ", effect requested");
             length = snapped;
+        } else {
+            setEffectMode(builder, CaptureRequest.CONTROL_EFFECT_MODE_OFF);
         }
         builder.set(CaptureRequest.LENS_FOCAL_LENGTH, length);
     }

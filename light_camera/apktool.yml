@@ -12,8 +12,8 @@ packageInfo:
   forcedPackageId: 127
   renameManifestPackage: openlight.co.lightcamera
 versionInfo:
-  versionCode: 2026101400
-  versionName: 2026.10.14.0
+  versionCode: 2026101500
+  versionName: 2026.10.15.0
 resourcesAreCompressed: false
 sharedLibrary: false
 sparseResources: false

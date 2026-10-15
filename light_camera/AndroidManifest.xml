@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="no"?><manifest xmlns:android="http://schemas.android.com/apk/res/android" package="openlight.co.lightcamera" platformBuildVersionCode="2026101400" platformBuildVersionName="2026.10.14.0">
+<?xml version="1.0" encoding="utf-8" standalone="no"?><manifest xmlns:android="http://schemas.android.com/apk/res/android" package="openlight.co.lightcamera" platformBuildVersionCode="2026101500" platformBuildVersionName="2026.10.15.0">
     <permission android:name="openlight.co.lightcamera.PREFS" android:protectionLevel="signature"/>
     <permission android:name="openlight.co.lightcamera.CAMERA_EVENTS" android:protectionLevel="signature"/>
     <uses-feature android:name="android.hardware.camera"/>

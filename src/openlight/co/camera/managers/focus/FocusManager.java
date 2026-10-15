@@ -162,7 +162,10 @@ public class FocusManager {
                 createCaptureRequest.set(CaptureRequest.CONTROL_AE_REGIONS, null);
                 createCaptureRequest.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, null);
                 createCaptureRequest.set(CaptureRequest.SCALER_CROP_REGION, null);
-                createCaptureRequest.set(CaptureRequest.LENS_FOCAL_LENGTH, getFocalLength());
+                // Through the helper, not straight onto the builder: this request targets the
+                // preview surface, and setting the key directly skipped monochrome mode's snap
+                // and grey effect — every focus frame reached the viewfinder in colour.
+                CaptureRequestBuilder.setLensFocalLength(createCaptureRequest, getFocalLength());
                 if (getTorchState()) {
                     createCaptureRequest.set(CaptureRequest.FLASH_MODE, 2);
                 }
