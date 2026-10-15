@@ -24,9 +24,15 @@ feature.cli_support=true
 # --- Monochrome ---
 # True monochrome support (default: true). Modules A2 and C6 carry an AR1335 with no
 # colour filter array; they ride with the 28 mm and 150 mm groups respectively, so the
-# mode offers only those two focal lengths — at 35, 50 or 70 mm no panchromatic plane
-# reaches the .lri at all. The frame is pulled out afterwards with scripts/lri-mono.
+# mode offers only those two focal lengths: a panchromatic plane rides along at every
+# focal length (A2 below 70 mm, C6 from 70), but only there does it see the frame's
+# field. The frame is pulled out afterwards with scripts/lri-mono.
 mono.feature=true
+
+# Astro: manual exposure at 28 mm plus a focus lock that holds across shots and app
+# restarts until the camera is moved (tripod flag lost or re-aimed by more than 3°).
+# See astro-plan.md. On by default; set false to hide the mode.
+astro.feature=true
 
 # --- Video ---
 # Enable video mode entirely (default: true)

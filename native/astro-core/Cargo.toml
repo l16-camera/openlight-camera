@@ -1,0 +1,22 @@
+[package]
+name = "astro-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Astro mode on the camera: read the panchromatic plane from a fresh .lri and measure its stars"
+
+[lib]
+name = "openlight_astro"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lri-proto = { git = "https://github.com/gennyble/lri-rs", rev = "91365deccbfd1d5686ff62d77d9dea6937fcdb4d" }
+# lumina-core lives in lumina-astronomy-software/desktop, branch feat/lumina-core (MIT,
+# no dependencies). Path until the speed-up commit 33eb75a is pushed; then pin by rev.
+lumina-core = { path = "../../../lumina-desktop/crates/lumina-core" }
+flate2 = "1"
+jni = { version = "0.21", default-features = false }
+
+[profile.release]
+opt-level = 3
+panic = "abort"

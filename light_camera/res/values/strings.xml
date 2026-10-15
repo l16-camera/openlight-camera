@@ -239,10 +239,12 @@ one camera at a time"</string>
     <string name="message_filter_hint">Regex for Message</string>
     <string name="metering_title">"metering
 mode"</string>
+    <string name="mode_astro">astro</string>
     <string name="mode_auto">auto</string>
     <string name="mode_iso">iso priority</string>
     <string name="mode_manual">manual</string>
     <string name="mode_mono">mono raw</string>
+    <string name="mode_short_astro">astro</string>
     <string name="mode_short_iso">iso</string>
     <string name="mode_short_mono">mono</string>
     <string name="mode_short_shutter">shutter</string>

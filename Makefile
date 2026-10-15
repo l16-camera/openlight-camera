@@ -57,6 +57,8 @@ $(STAGE3_BUILDDIR): build/classes2.jar $(LIGHT_CAMERA_FILES)
 	mkdir -p $@
 	cp -r light_camera/assets $@
 	cp -r light_camera/original $@
+	# Native code (astro mode). Optional: apktool packs lib/ when it is there.
+	if [ -d light_camera/lib ]; then cp -r light_camera/lib $@; fi
 	cp -r light_camera/res $@
 	cp -r light_camera/AndroidManifest.xml $@
 	cp -r light_camera/apktool.yml $@

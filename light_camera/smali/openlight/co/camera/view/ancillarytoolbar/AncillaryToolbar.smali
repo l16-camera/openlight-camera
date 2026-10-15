@@ -374,6 +374,11 @@
 
     move-result-object p0
 
+    # ASTRO borrows MANUAL here: dispatch on the base mode.
+    invoke-virtual {p0}, Lopenlight/co/camera/CameraMode;->baseMode()Lopenlight/co/camera/CameraMode;
+
+    move-result-object p0
+
     .line 335
     sget-object v0, Lopenlight/co/camera/CameraMode;->VIDEO:Lopenlight/co/camera/CameraMode;
 

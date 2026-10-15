@@ -2314,6 +2314,8 @@
     <public type="string" name="setting_title_touchstrip_speed" id="0x7f0e0141" />
     <public type="string" name="mode_mono" id="0x7f0e0142" />
     <public type="string" name="mode_short_mono" id="0x7f0e0143" />
+    <public type="string" name="mode_astro" id="0x7f0e0144" />
+    <public type="string" name="mode_short_astro" id="0x7f0e0145" />
     <public type="style" name="AlertDialog.AppCompat" id="0x7f0f0000" />
     <public type="style" name="AlertDialog.AppCompat.Light" id="0x7f0f0001" />
     <public type="style" name="Animation.AppCompat.Dialog" id="0x7f0f0002" />

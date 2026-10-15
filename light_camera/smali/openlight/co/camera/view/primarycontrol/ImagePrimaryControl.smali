@@ -1550,6 +1550,11 @@
 
     move-result-object v0
 
+    # ASTRO borrows MANUAL here: dispatch on the base mode.
+    invoke-virtual {v0}, Lopenlight/co/camera/CameraMode;->baseMode()Lopenlight/co/camera/CameraMode;
+
+    move-result-object v0
+
     .line 1117
     sget-object v1, Lopenlight/co/camera/view/primarycontrol/ImagePrimaryControl$8;->$SwitchMap$light$co$camera$CameraMode:[I
 
@@ -1683,6 +1688,11 @@
     move-result-object v0
 
     invoke-virtual {v0}, Lopenlight/co/camera/managers/CameraManager;->getCameraMode()Lopenlight/co/camera/CameraMode;
+
+    move-result-object v0
+
+    # ASTRO borrows MANUAL here: dispatch on the base mode.
+    invoke-virtual {v0}, Lopenlight/co/camera/CameraMode;->baseMode()Lopenlight/co/camera/CameraMode;
 
     move-result-object v0
 

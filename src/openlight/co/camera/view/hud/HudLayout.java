@@ -304,6 +304,7 @@ public class HudLayout extends ControlManager implements OrientationListener {
                 dimmed.add(HudValue.ISO);
                 break;
             case MANUAL:
+            case ASTRO:
                 hidden.add(HudValue.EV);
                 visible.add(HudValue.ISO);
                 visible.add(HudValue.SHUTTER_SPEED);

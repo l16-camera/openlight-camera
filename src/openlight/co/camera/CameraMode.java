@@ -33,6 +33,23 @@ public enum CameraMode {
         @Override
         public boolean isMono() { return true; }
     },
+    /**
+     * Landscape astrophotography from a tripod. Exposure is manual — the request path,
+     * HUD and dials treat it as MANUAL through {@link #baseMode()} and isManual() — and
+     * what the mode adds is a focus lock that survives until the camera is moved (see
+     * openlight.co.camera.astro.AstroFocusGuard). Opens at 28 mm, where A2 rides along.
+     */
+    ASTRO(FeatureManager.get().getBoolean("astro.feature", true), Res.MODE_ASTRO, Res.MODE_SHORT_ASTRO,
+            true, true, false) {
+        @Override
+        public boolean isAstro() { return true; }
+
+        @Override
+        public boolean isManual() { return true; }
+
+        @Override
+        public CameraMode baseMode() { return MANUAL; }
+    },
     VIDEO(FeatureManager.get().getBoolean("video.feature", true), Res.MODE_VIDEO_BETA, Res.MODE_VIDEO,
             false, false, false) {
         @Override
@@ -57,6 +74,8 @@ public enum CameraMode {
         static final int MODE_VIDEO_BETA = 0x7f0e00e9;
         static final int MODE_MONO = 0x7f0e0142;
         static final int MODE_SHORT_MONO = 0x7f0e0143;
+        static final int MODE_ASTRO = 0x7f0e0144;
+        static final int MODE_SHORT_ASTRO = 0x7f0e0145;
     }
 
     private static Map<Integer, CameraMode> mEnabledModes;
@@ -95,6 +114,14 @@ public enum CameraMode {
     public boolean isIso() { return false; }
     public boolean isManual() { return false; }
     public boolean isMono() { return false; }
+    public boolean isAstro() { return false; }
+
+    /**
+     * The mode whose request manager, HUD layout and dials this one borrows. Smali still
+     * dispatches on the four original modes by ordinal tables built when the enum had
+     * no ASTRO; it calls this first so a borrowed mode lands in the right branch.
+     */
+    public CameraMode baseMode() { return this; }
     public boolean isShutter() { return false; }
     public boolean isVideo() { return false; }
 
@@ -173,7 +200,8 @@ public enum CameraMode {
     }
 
     public static boolean isPictureMode(CameraMode mode) {
-        return mode == AUTO || mode == ISO || mode == SHUTTER || mode == MANUAL || mode == MONO;
+        return mode == AUTO || mode == ISO || mode == SHUTTER || mode == MANUAL || mode == MONO
+                || mode == ASTRO;
     }
 
     public static boolean isVideoMode(CameraMode mode) {

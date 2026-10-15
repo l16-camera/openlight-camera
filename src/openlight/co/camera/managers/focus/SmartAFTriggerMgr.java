@@ -8,6 +8,7 @@ import android.os.Message;
 import com.immersion.ImmVibeAPI;
 import java.util.List;
 import openlight.co.camera.CameraInfo;
+import openlight.co.camera.astro.AstroFocusGuard;
 import openlight.co.camera.listener.HardKeyManager;
 import openlight.co.camera.listener.SignificantMotionDetector;
 import openlight.co.camera.listener.SignificantMotionListener;
@@ -162,6 +163,7 @@ public class SmartAFTriggerMgr implements SignificantMotionListener {
     }
 
     public void processZoomTrigger() {
+        AstroFocusGuard.get().onUserRefocus("zoom");
         if (mLastFocusTriggeredFace != null
                 && mMostRecentFocusTriggerSource == FocusTriggerSource.FACE_DETECTION) {
             LogUtil.i(TAG, "Ignoring focus trigger for this zoom since faces are in the scene, "
@@ -174,6 +176,7 @@ public class SmartAFTriggerMgr implements SignificantMotionListener {
     }
 
     public void processUserTap(float x, float y) {
+        AstroFocusGuard.get().onUserRefocus("tap to focus");
         releaseSignificantMotionDetector();
         mTimingLoggerUtil.captureTiming(TimingLoggerUtil.TimeToAutoFocusSplits.SOFT_ROI_TAP);
         triggerFocus(FocusTriggerSource.USER, (int) x, (int) y);
@@ -296,6 +299,16 @@ public class SmartAFTriggerMgr implements SignificantMotionListener {
         mMostRecentFocusTriggerSource = FocusTriggerSource.USER_SCREEN_LOCK;
         triggerFocus(FocusTriggerSource.USER_SCREEN_LOCK, (int) x, (int) y);
         mMetrics.add(CameraMetrics.EVENT_FOCUS_LOCKED_HW_KEY);
+        AstroFocusGuard.get().onScreenLock();
+    }
+
+    /**
+     * Put back a screen lock that init() wiped on reopen, without refocusing: the lens is
+     * still where the lock left it. Used by astro mode when the camera did not move.
+     */
+    public void restoreScreenLock() {
+        releaseSignificantMotionDetector();
+        mMostRecentFocusTriggerSource = FocusTriggerSource.USER_SCREEN_LOCK;
     }
 
     public boolean isFocusLocked() {

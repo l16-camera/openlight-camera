@@ -1,5 +1,6 @@
 package openlight.co.camera.managers;
 
+import openlight.co.camera.astro.AstroFocusGuard;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -280,8 +281,17 @@ public abstract class CameraManager {
                             }
                             FocusManager fmgr = (FocusManager) mFocusManager.get();
                             if (fmgr.isIdle()) {
-                                LogUtil.i(TAG, "Initial focus in module");
-                                ((SmartAFTriggerMgr) mSmartAFTriggerMgrProvider.get()).processSystemTrigger();
+                                if (AstroFocusGuard.get().keepLockOnReopen()) {
+                                    // Astro: the lens is parked where the user locked it and
+                                    // the camera has not moved; a refocus on the night sky
+                                    // would drag it to a few metres.
+                                    LogUtil.i(TAG, "Initial focus skipped: astro focus lock kept");
+                                    ((SmartAFTriggerMgr) mSmartAFTriggerMgrProvider.get()).restoreScreenLock();
+                                    fmgr.setFocusCompleted();
+                                } else {
+                                    LogUtil.i(TAG, "Initial focus in module");
+                                    ((SmartAFTriggerMgr) mSmartAFTriggerMgrProvider.get()).processSystemTrigger();
+                                }
                             }
                             List<?> faces = FaceDetector.get().processCaptureResult(result);
                             boolean noFaces;
@@ -302,6 +312,8 @@ public abstract class CameraManager {
                                 mUpdatePreviewListener.updateLowLightAssist(p1.isCaptureStacked());
                                 openlight.co.lightsdk.camera2.CaptureResult.Parser p2 = openlight.co.lightsdk.camera2.CaptureResult.Parser.get(result);
                                 mUpdatePreviewListener.updateTripodAssist(p2.isOnTripod());
+                                AstroFocusGuard.get().onTripod(p2.isOnTripod());
+                                logStackedChange(p1.isCaptureStacked());
                                 mUpdatePreviewListener.updateHandshakeAssist(showHandshakeAssist(result));
                             }
                             break;
@@ -490,6 +502,16 @@ public abstract class CameraManager {
     private void setTorchForFocus(boolean enabled) {
         ((FocusManager) mFocusManager.get()).setTorchForFlash(mPreviewRequestBuilder, enabled);
         startRepeatingRequestInPreview();
+    }
+
+    private Byte mLastStacked;
+
+    /** Low-light assist (multi-frame stacking) must stay off on a tripod; log when it flips. */
+    private void logStackedChange(Byte stacked) {
+        if (stacked != null && !stacked.equals(mLastStacked)) {
+            LogUtil.i(TAG, "[ASTRO] stacked_capture_fw " + mLastStacked + " -> " + stacked);
+            mLastStacked = stacked;
+        }
     }
 
     private boolean showHandshakeAssist(CaptureResult result) {

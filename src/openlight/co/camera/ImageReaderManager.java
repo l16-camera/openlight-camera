@@ -1,5 +1,6 @@
 package openlight.co.camera;
 
+import openlight.co.camera.astro.AstroAnalyzer;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
@@ -337,6 +338,9 @@ public class ImageReaderManager {
                         if (MonoMode.isActive()) {
                             MonoProxy.greyInPlace(path);
                         }
+                        // Astro: measure the stars of the panchromatic plane — the focus
+                        // check that the dark preview cannot give.
+                        AstroAnalyzer.onSaved(path);
                         if (mOnImageStatusListener != null) {
                             mOnImageStatusListener.onImageSaved(format, path, orientation);
                         }

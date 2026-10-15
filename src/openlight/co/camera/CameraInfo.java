@@ -313,8 +313,9 @@ public class CameraInfo {
             @Override
             public boolean isDefault(CameraMode mode) {
                 // Monochrome opens wide: 28 mm is the stop that carries module A2, and
-                // every mode must name a default or getDefaultFocalLength throws.
-                return mode.isVideo() || mode.isMono();
+                // every mode must name a default or getDefaultFocalLength throws. Astro
+                // opens wide as well: 28 mm is the landscape field and carries A2.
+                return mode.isVideo() || mode.isMono() || mode.isAstro();
             }
         },
         SIMULATED_FOCAL_LENGTH2(35) {
