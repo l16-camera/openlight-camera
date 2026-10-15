@@ -249,7 +249,8 @@ public class Util {
         prefs.removeValue("burst_mode");
         prefs.removeValue("focal_length");
         prefs.removeValue("zoom_value");
-        prefs.removeValue("device_touchstrip_setting");
+        // device_touchstrip_setting used to be wiped here too, so the strip fell back
+        // to off on every launch; it is the user's choice and now survives restarts.
         prefs.removeValue("white_balance_setting");
     }
 

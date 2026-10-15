@@ -215,27 +215,15 @@
 .method public onScroll(FFZ)V
     .registers 6
 
-    .line 893
-    # getter for: Lopenlight/co/camera/BasePreviewFragment;->TAG:Ljava/lang/String;
-    invoke-static {}, Lopenlight/co/camera/BasePreviewFragment;->access$000()Ljava/lang/String;
-
-    move-result-object v0
-
-    const-string v1, "onScroll "
-
-    invoke-static {v0, v1}, Lopenlight/co/lib/utils/LogUtil;->d(Ljava/lang/String;Ljava/lang/String;)V
-
-    .line 894
+    # Zoom by the finger's travel, not one detent per callback: ZoomController takes
+    # the raw distance and applies its own acceleration. It checks camera idle itself.
     iget-object v0, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
+
+    invoke-static {v0, p1}, Lopenlight/co/camera/ZoomController;->onScreenScroll(Lopenlight/co/camera/BasePreviewFragment;F)V
 
     iget-object v0, v0, Lopenlight/co/camera/BasePreviewFragment;->mPrimaryControl:Lopenlight/co/camera/view/primarycontrol/ImagePrimaryControl;
 
-    if-eqz v0, :cond_1a
-
-    .line 895
-    iget-object v0, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    iget-object v0, v0, Lopenlight/co/camera/BasePreviewFragment;->mPrimaryControl:Lopenlight/co/camera/view/primarycontrol/ImagePrimaryControl;
+    if-eqz v0, :cond_end
 
     const v1, 0x3ed2f1aa    # 0.412f
 
@@ -243,91 +231,7 @@
 
     invoke-virtual {v0, p1}, Lopenlight/co/camera/view/primarycontrol/ImagePrimaryControl;->setScrollDistance(F)V
 
-    .line 898
-    :cond_1a
-    iget-object p1, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    iget-object p1, p1, Lopenlight/co/camera/BasePreviewFragment;->mCameraManager:Lopenlight/co/camera/utils/Provider;
-
-    invoke-interface {p1}, Lopenlight/co/camera/utils/Provider;->get()Ljava/lang/Object;
-
-    move-result-object p1
-
-    check-cast p1, Lopenlight/co/camera/managers/CameraManager;
-
-    invoke-virtual {p1}, Lopenlight/co/camera/managers/CameraManager;->isIdle()Z
-
-    move-result p1
-
-    if-eqz p1, :cond_6c
-
-    .line 899
-    iget-object p1, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    iget-object p1, p1, Lopenlight/co/camera/BasePreviewFragment;->mZoomManager:Lopenlight/co/camera/managers/zoom/ZoomManager;
-
-    invoke-virtual {p1}, Lopenlight/co/camera/managers/zoom/ZoomManager;->isCurrentlyZooming()Z
-
-    move-result p1
-
-    if-nez p1, :cond_40
-
-    .line 900
-    iget-object p1, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    sget-object v0, Lopenlight/co/camera/view/zoom/ZoomWheel$EventType;->DISPLAY:Lopenlight/co/camera/view/zoom/ZoomWheel$EventType;
-
-    invoke-virtual {p1, v0}, Lopenlight/co/camera/BasePreviewFragment;->showZoomWheelView(Lopenlight/co/camera/view/zoom/ZoomWheel$EventType;)V
-
-    .line 901
-    iget-object p1, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    invoke-virtual {p1}, Lopenlight/co/camera/BasePreviewFragment;->removeFocusCrossHair()V
-
-    :cond_40
-    if-eqz p3, :cond_6c
-
-    .line 905
-    # getter for: Lopenlight/co/camera/BasePreviewFragment;->TAG:Ljava/lang/String;
-    invoke-static {}, Lopenlight/co/camera/BasePreviewFragment;->access$000()Ljava/lang/String;
-
-    move-result-object p1
-
-    new-instance p3, Ljava/lang/StringBuilder;
-
-    invoke-direct {p3}, Ljava/lang/StringBuilder;-><init>()V
-
-    const-string v0, "scaleRatio: "
-
-    invoke-virtual {p3, v0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
-
-    invoke-virtual {p3, p2}, Ljava/lang/StringBuilder;->append(F)Ljava/lang/StringBuilder;
-
-    invoke-virtual {p3}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
-
-    move-result-object p3
-
-    invoke-static {p1, p3}, Lopenlight/co/lib/utils/LogUtil;->d(Ljava/lang/String;Ljava/lang/String;)V
-
-    .line 906
-    iget-object p1, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    iget-object p1, p1, Lopenlight/co/camera/BasePreviewFragment;->mZoomManager:Lopenlight/co/camera/managers/zoom/ZoomManager;
-
-    invoke-virtual {p1, p2}, Lopenlight/co/camera/managers/zoom/ZoomManager;->setZoom(F)V
-
-    .line 907
-    iget-object p1, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    iget-object p1, p1, Lopenlight/co/camera/BasePreviewFragment;->mZoomManager:Lopenlight/co/camera/managers/zoom/ZoomManager;
-
-    iget-object p0, p0, Lopenlight/co/camera/BasePreviewFragment$PreviewGestureListener;->this$0:Lopenlight/co/camera/BasePreviewFragment;
-
-    iget-object p0, p0, Lopenlight/co/camera/BasePreviewFragment;->mZoomWheel:Lopenlight/co/camera/view/zoom/ZoomWheel;
-
-    invoke-virtual {p1, p0}, Lopenlight/co/camera/managers/zoom/ZoomManager;->performZoom(Lopenlight/co/camera/view/zoom/ZoomWheel;)V
-
-    :cond_6c
+    :cond_end
     return-void
 .end method
 
@@ -558,6 +462,10 @@
 
 .method public onTouch(Landroid/view/MotionEvent;FZ)Z
     .registers 7
+
+    # Lets ZoomController know when a finger is on the screen: it settles onto a
+    # detent only after the finger lifts, never in a mid-drag pause.
+    invoke-static {p1}, Lopenlight/co/camera/ZoomController;->onScreenTouch(Landroid/view/MotionEvent;)V
 
     .line 922
     invoke-static {}, Lopenlight/co/camera/managers/capture/CaptureManager;->get()Lopenlight/co/camera/managers/capture/CaptureManager;

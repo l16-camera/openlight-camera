@@ -1167,6 +1167,8 @@
 
     invoke-virtual {v0, v2}, Lopenlight/co/touchstrip/TouchStrip;->unregisterEventListener(Lopenlight/co/touchstrip/TouchStrip$OnTouchStripEventListener;)V
 
+    invoke-static {}, Lopenlight/co/camera/ZoomController;->detach()V
+
     .line 1138
     iget-object v0, p0, Lopenlight/co/camera/BasePreviewFragment;->mLensObstructionDetector:Lopenlight/co/camera/utils/LensObstructionDetector;
 
@@ -2078,6 +2080,9 @@
     iget-object v1, p0, Lopenlight/co/camera/BasePreviewFragment;->mOnTouchStripEventListener:Lopenlight/co/touchstrip/TouchStrip$OnTouchStripEventListener;
 
     invoke-virtual {v0, v1}, Lopenlight/co/touchstrip/TouchStrip;->registerEventListener(Lopenlight/co/touchstrip/TouchStrip$OnTouchStripEventListener;)V
+
+    # Continuous zoom for the strip and the screen scroll lives in Java.
+    invoke-static {p0}, Lopenlight/co/camera/ZoomController;->attach(Lopenlight/co/camera/BasePreviewFragment;)V
 
     .line 1387
     iget-object v0, p0, Lopenlight/co/camera/BasePreviewFragment;->mLensObstructionDetector:Lopenlight/co/camera/utils/LensObstructionDetector;

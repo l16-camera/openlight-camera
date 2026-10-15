@@ -22,7 +22,7 @@ public class TouchStrip {
 
     public static final String SHARED_PREF_TOUCHSTRIP_SETTING_OFF = "off";
 
-    /** How much strip travel one zoom step costs; see SCROLL_DISTANCE_PER_STEP. */
+    /** Strip travel multiplier for the zoom: slow, normal or fast; see getTravelScale. */
     public static final String SHARED_PREF_TOUCHSTRIP_SPEED_SETTING = "device_touchstrip_speed_setting";
 
     public static final String SPEED_SLOW = "slow";
@@ -48,64 +48,15 @@ public class TouchStrip {
     private static final int THRESHOLD_SCROLL_MIN_DISTANCE = 5;
 
     /**
-     * Strip travel, in device units, that makes up one zoom step.
-     *
-     * The original code emitted a swipe per scroll callback whose delta cleared
-     * THRESHOLD_SCROLL_MIN_DISTANCE, so the zoom tracked how many events the
-     * detector happened to fire rather than how far the finger actually moved —
-     * a slow drag produced a burst of steps. Accumulating distance instead makes
-     * one step cost a fixed amount of travel. The strip reports 0..768 and the
-     * zoom wheel has ~52 detents, so ~15 units per step spans the whole range in
-     * a single pass.
+     * Strip travel multiplier per speed setting. Zoom itself lives in
+     * openlight.co.camera.ZoomController; the strip only reports how far the finger went.
      */
-    private static final float SCROLL_DISTANCE_PER_STEP = 15.0F;
+    private static final float TRAVEL_SCALE_SLOW = 0.5F;
 
-    /**
-     * Finger speed, in strip units per second, between which the zoom accelerates.
-     *
-     * Below the floor a step keeps costing its full travel, so a slow drag stays
-     * exactly as precise as before — that is the mode you want when placing the
-     * focal length by eye. Above the floor the cost shrinks, and a decisive sweep
-     * crosses the range in a fraction of the strip. The curve is quadratic rather
-     * than linear so the transition is not felt as a step: the first half of the
-     * speed range barely accelerates at all.
-     *
-     * The strip is 768 units wide and reports around 60 events per second, so a
-     * leisurely drag sits near 300 u/s and a brisk one near 2500.
-     */
-    private static final float ACCEL_SPEED_FLOOR = 350.0F;
-
-    private static final float ACCEL_SPEED_CEILING = 2600.0F;
-
-    private static final float ACCEL_MAX_GAIN = 3.5F;
-
-    /**
-     * A fast sweep asks for more detents than one callback should hand over at once —
-     * fired together they read as a hop rather than a movement. Two go out inline so
-     * slow work keeps its immediate response, and the rest is paid out over the frames
-     * that follow, at most STEPS_PER_PUMP_TICK per 16 ms. Backlog is capped so the zoom
-     * never keeps running noticeably after the finger has stopped.
-     */
-    private static final int STEPS_INLINE_LIMIT = 2;
-
-    private static final int STEPS_PER_PUMP_TICK = 3;
-
-    private static final long PUMP_TICK_MS = 16L;
-
-    private static final int MAX_PENDING_STEPS = 18;
+    private static final float TRAVEL_SCALE_FAST = 2.0F;
 
     /** Weight of the newest sample in the speed estimate; lower is smoother, laggier. */
     private static final float SPEED_SMOOTHING = 0.45F;
-
-    /** Release faster than this coasts; slower than this stops dead under the finger. */
-    private static final float MOMENTUM_MIN_VELOCITY = 900.0F;
-
-    private static final float MOMENTUM_STOP_VELOCITY = 220.0F;
-
-    /** Per-tick decay. 0.90 at 16 ms leaves about a third of the speed after 100 ms. */
-    private static final float MOMENTUM_FRICTION_PER_TICK = 0.90F;
-
-    private static final long MOMENTUM_TICK_MS = 16L;
 
     private static final long TIME_DURATION_TO_COUNT_EVENTS = 400L;
 
@@ -127,24 +78,14 @@ public class TouchStrip {
 
     private volatile int mCurrentScrollEventsCumulativeDistance = 0;
 
-    /** Strip travel banked since the last emitted zoom step. */
-    private volatile float mScrollAccumulator = 0.0F;
-
     /** Speed of the finger right now, in strip units per second; 0 when not touching. */
     private volatile float mCurrentSpeed = 0.0F;
 
-    /** Signed speed while the zoom coasts after release; 0 when at rest. */
-    private volatile float mMomentumVelocity = 0.0F;
-
-    /** Travel banked by the coast since its last emitted step. */
-    private float mMomentumTravel = 0.0F;
-
-    /** Detents owed to the listener, signed the way emitSteps reads them. */
-    private volatile int mPendingSteps = 0;
-
     private VelocityTracker mVelocityTracker;
 
-    /** Set when a touch landed only to halt a coast, so the tap it produces is swallowed. */
+    private DragListener mDragListener;
+
+    /** Set when a touch landed only to halt a moving zoom, so the tap it produces is swallowed. */
     private volatile boolean mTouchStoppedMomentum = false;
 
     private GestureDetectorCompat mDetector;
@@ -177,45 +118,6 @@ public class TouchStrip {
     };
 
     private final Handler mFlingProcessingHandler = new Handler(Looper.getMainLooper());
-
-    /** Pays out deferred detents a few per frame, so a burst reads as motion, not a hop. */
-    private final Runnable mStepPumpRunnable = new Runnable() {
-        public void run() {
-            int pending = TouchStrip.this.mPendingSteps;
-            if (pending == 0) {
-                return;
-            }
-            boolean left = pending > 0;
-            int count = Math.min(Math.abs(pending), STEPS_PER_PUMP_TICK);
-            TouchStrip.this.mPendingSteps = pending - (left ? count : -count);
-            TouchStrip.this.notifySteps(left, count);
-            if (TouchStrip.this.mPendingSteps != 0) {
-                TouchStrip.this.mFlingProcessingHandler.postDelayed(this, PUMP_TICK_MS);
-            }
-        }
-    };
-
-    /** Drives the coast after release: decay the speed, bank the travel, emit whole steps. */
-    private final Runnable mMomentumRunnable = new Runnable() {
-        public void run() {
-            float velocity = TouchStrip.this.mMomentumVelocity;
-            if (Math.abs(velocity) < MOMENTUM_STOP_VELOCITY) {
-                TouchStrip.this.stopMomentum();
-                return;
-            }
-            TouchStrip.this.mMomentumTravel += Math.abs(velocity) * MOMENTUM_TICK_MS / 1000.0F;
-            float perStep = TouchStrip.this.getScrollDistancePerStep()
-                    / TouchStrip.this.gainForSpeed(Math.abs(velocity));
-            int steps = (int) (TouchStrip.this.mMomentumTravel / perStep);
-            if (steps > 0) {
-                TouchStrip.this.mMomentumTravel -= steps * perStep;
-                // Coasting right means the focal ran the way a leftward drag sends it.
-                TouchStrip.this.emitSteps((velocity > 0.0F) ? -steps : steps);
-            }
-            TouchStrip.this.mMomentumVelocity = velocity * MOMENTUM_FRICTION_PER_TICK;
-            TouchStrip.this.mFlingProcessingHandler.postDelayed(this, MOMENTUM_TICK_MS);
-        }
-    };
 
     private boolean mIsTouchStripDisabled = true;
 
@@ -280,8 +182,6 @@ public class TouchStrip {
             public boolean onDown(MotionEvent param1MotionEvent) {
                 TouchStrip touchStrip = TouchStrip.this;
                 touchStrip.logIt(TouchStrip.TAG, "onDown " + param1MotionEvent.toString());
-                // Travel banked by the previous gesture must not spill into this one.
-                touchStrip.mScrollAccumulator = 0.0F;
                 return true;
             }
 
@@ -331,7 +231,7 @@ public class TouchStrip {
                     // feeling the same however hard you moved.
                     return false;
                 }
-                return TouchStrip.this.emitScrollSteps(param1Float1);
+                return TouchStrip.this.emitDrag(param1Float1);
             }
 
             public void onShowPress(MotionEvent param1MotionEvent) {
@@ -412,75 +312,16 @@ public class TouchStrip {
     }
 
     /**
-     * Turns raw scroll distance into zoom steps at a fixed cost in strip travel,
-     * so the zoom follows how far the finger moved rather than how many scroll
-     * callbacks the detector produced.
+     * Hands the finger's travel to the drag listener, rightwards positive and scaled by
+     * the speed setting. No thresholds and no rounding into steps: the listener runs the
+     * zoom as a continuous value, so every unit of travel counts.
      */
-    private boolean emitScrollSteps(float paramFloat) {
-        if (paramFloat > -THRESHOLD_SCROLL_MIN_DISTANCE && paramFloat < THRESHOLD_SCROLL_MIN_DISTANCE) {
+    private boolean emitDrag(float paramFloat) {
+        if (this.mDragListener == null || paramFloat == 0.0F) {
             return false;
         }
-        this.mScrollAccumulator += paramFloat;
-        float perStep = getScrollDistancePerStep() / gainForSpeed(this.mCurrentSpeed);
-        int steps = (int) (this.mScrollAccumulator / perStep);
-        if (steps == 0) {
-            return false;
-        }
-        this.mScrollAccumulator -= steps * perStep;
-        logIt(TAG, "speed " + Math.round(this.mCurrentSpeed) + " u/s, gain "
-                + gainForSpeed(this.mCurrentSpeed) + ", steps " + steps);
-        emitSteps(steps);
+        this.mDragListener.onStripDrag(-paramFloat * getTravelScale(), this.mCurrentSpeed);
         return true;
-    }
-
-    /**
-     * Hands the listener a few detents now and defers the rest, so a quick sweep runs
-     * the zoom instead of throwing it. Sign follows scroll distance, positive leftwards.
-     */
-    private void emitSteps(int paramInt) {
-        if (paramInt == 0) {
-            return;
-        }
-        int inline = Math.min(Math.abs(paramInt), STEPS_INLINE_LIMIT);
-        notifySteps(paramInt > 0, inline);
-
-        int deferred = Math.abs(paramInt) - inline;
-        if (deferred <= 0) {
-            return;
-        }
-        // A reversal cancels what is still owed rather than fighting it.
-        if ((this.mPendingSteps > 0) != (paramInt > 0)) {
-            this.mPendingSteps = 0;
-        }
-        int pending = Math.abs(this.mPendingSteps) + deferred;
-        this.mPendingSteps = Math.min(pending, MAX_PENDING_STEPS) * ((paramInt > 0) ? 1 : -1);
-        this.mFlingProcessingHandler.removeCallbacks(this.mStepPumpRunnable);
-        this.mFlingProcessingHandler.postDelayed(this.mStepPumpRunnable, PUMP_TICK_MS);
-    }
-
-    private void notifySteps(boolean paramBoolean, int paramInt) {
-        Event event = paramBoolean ? Event.SWIPE_LEFT : Event.SWIPE_RIGHT;
-        for (int i = 0; i < paramInt; i++) {
-            notifyEventListeners(event);
-        }
-    }
-
-    /**
-     * How much the zoom outruns the finger at a given speed. Flat at 1.0 below the
-     * floor so slow work stays one step per fixed travel, then quadratic up to
-     * ACCEL_MAX_GAIN — the same shape a pointer acceleration curve uses, and the
-     * reason a hurried sweep covers ground while a careful one still lands on the
-     * detent you aimed at.
-     */
-    private float gainForSpeed(float paramFloat) {
-        if (paramFloat <= ACCEL_SPEED_FLOOR) {
-            return 1.0F;
-        }
-        if (paramFloat >= ACCEL_SPEED_CEILING) {
-            return ACCEL_MAX_GAIN;
-        }
-        float t = (paramFloat - ACCEL_SPEED_FLOOR) / (ACCEL_SPEED_CEILING - ACCEL_SPEED_FLOOR);
-        return 1.0F + t * t * (ACCEL_MAX_GAIN - 1.0F);
     }
 
     /**
@@ -490,10 +331,7 @@ public class TouchStrip {
     private void trackVelocity(MotionEvent paramMotionEvent) {
         switch (paramMotionEvent.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                this.mTouchStoppedMomentum = (this.mMomentumVelocity != 0.0F || this.mPendingSteps != 0);
-                stopMomentum();
-                this.mPendingSteps = 0;
-                this.mFlingProcessingHandler.removeCallbacks(this.mStepPumpRunnable);
+                this.mTouchStoppedMomentum = this.mDragListener != null && this.mDragListener.onStripDown();
                 if (this.mVelocityTracker == null) {
                     this.mVelocityTracker = VelocityTracker.obtain();
                 } else {
@@ -524,46 +362,27 @@ public class TouchStrip {
                     this.mVelocityTracker = null;
                 }
                 this.mCurrentSpeed = 0.0F;
-                startMomentum(velocity);
+                if (this.mDragListener != null) {
+                    this.mDragListener.onStripUp(velocity, getTravelScale());
+                }
                 break;
         }
     }
 
-    /**
-     * Lets the zoom coast on after the finger leaves, decaying to a stop. Anything
-     * slower than MOMENTUM_MIN_VELOCITY stops where it was put; anything above the
-     * fling threshold belongs to onFling, which jumps to the next prime instead.
-     */
-    private void startMomentum(float paramFloat) {
-        float speed = Math.abs(paramFloat);
-        if (speed < MOMENTUM_MIN_VELOCITY || speed >= THRESHOLD_FLING_VELOCITY) {
-            return;
-        }
-        this.mMomentumVelocity = paramFloat;
-        this.mMomentumTravel = 0.0F;
-        this.mFlingProcessingHandler.post(this.mMomentumRunnable);
-    }
-
-    private void stopMomentum() {
-        this.mMomentumVelocity = 0.0F;
-        this.mMomentumTravel = 0.0F;
-        this.mFlingProcessingHandler.removeCallbacks(this.mMomentumRunnable);
-    }
-
-    /** Strip travel per zoom step, widened or narrowed by the user's speed setting. */
-    private float getScrollDistancePerStep() {
+    /** Travel multiplier from the user's speed setting. */
+    private float getTravelScale() {
         String speed = SPEED_DEFAULT;
         if (this.mApplication != null) {
             speed = getSharedPreferences((Context) this.mApplication)
                     .getString(SHARED_PREF_TOUCHSTRIP_SPEED_SETTING, SPEED_DEFAULT);
         }
         if (SPEED_SLOW.equals(speed)) {
-            return SCROLL_DISTANCE_PER_STEP * 2.0F;
+            return TRAVEL_SCALE_SLOW;
         }
         if (SPEED_FAST.equals(speed)) {
-            return SCROLL_DISTANCE_PER_STEP / 2.0F;
+            return TRAVEL_SCALE_FAST;
         }
-        return SCROLL_DISTANCE_PER_STEP;
+        return 1.0F;
     }
 
     private void startFlingEventDetection(Event paramEvent) {
@@ -600,6 +419,22 @@ public class TouchStrip {
 
     public void unregisterEventListener(OnTouchStripEventListener paramOnTouchStripEventListener) {
         this.mOnTouchStripEventListeners.remove(paramOnTouchStripEventListener);
+    }
+
+    public void setDragListener(DragListener paramDragListener) {
+        this.mDragListener = paramDragListener;
+    }
+
+    /** Continuous finger travel, for the zoom. Taps, flings and holds still go out as events. */
+    public interface DragListener {
+        /** Finger landed. True if it caught something in motion, so its tap is swallowed. */
+        boolean onStripDown();
+
+        /** Travel in strip units, positive rightwards; speed in units per second. */
+        void onStripDrag(float dx, float speed);
+
+        /** Finger lifted; velocity signed, positive rightwards, before travelScale. */
+        void onStripUp(float velocity, float travelScale);
     }
 
     public enum Event {

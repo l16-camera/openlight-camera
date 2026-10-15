@@ -47,7 +47,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const PROTOCOL_VERSION = "2025-06-18";
-const SERVER_INFO = { name: "openlight-camera", version: "1.1.0" };
+const SERVER_INFO = { name: "openlight-camera", version: "1.2.0" };
 
 const BETA_PACKAGE = process.env.OPENLIGHT_PACKAGE || "openlight.co.lightcamera";
 const STOCK_PACKAGE = "light.co.lightcamera";
@@ -355,6 +355,85 @@ async function swipe({ x1, y1, x2, y2, duration_ms = 300 }) {
     `input swipe ${[x1, y1, x2, y2, duration_ms].map((v) => Math.round(v)).join(" ")}`
   );
   return res.ok ? "swiped" : `FAILED: ${res.stderr.trim()}`;
+}
+
+// The touch strip is its own evdev device (elan-touchscreen, X 0..768), not part of
+// the screen, so `input` cannot reach it. The shell user is in group input and may
+// write raw input_event structs (arm64: 24 bytes) to it; printf with octal escapes
+// writes them without a helper binary. One printf per sample, ~50 ms apart.
+let stripDevice = null;
+
+async function findStripDevice() {
+  if (stripDevice) return stripDevice;
+  const res = await sh("getevent -pl 2>/dev/null");
+  let current = null;
+  for (const line of res.stdout.split("\n")) {
+    const dev = line.match(/add device \d+: (\S+)/);
+    if (dev) current = dev[1];
+    if (/name:\s+"elan-touchscreen"/.test(line) && current) {
+      stripDevice = current;
+      return stripDevice;
+    }
+  }
+  throw new Error("touch strip input device (elan-touchscreen) not found");
+}
+
+function inputEvent(type, code, value) {
+  const b = Buffer.alloc(24);
+  b.writeUInt16LE(type, 16);
+  b.writeUInt16LE(code, 18);
+  b.writeInt32LE(value, 20);
+  return b;
+}
+
+function printfEvents(events, device) {
+  const bytes = Buffer.concat(events.map((e) => inputEvent(...e)));
+  const octal = [...bytes].map((x) => "\\" + x.toString(8).padStart(3, "0")).join("");
+  return `printf '${octal}' > ${device}`;
+}
+
+const EV_SYN = [0, 0, 0];
+const stripDown = (x) => [[3, 57, 0], [3, 53, x], [3, 54, 0], [3, 0, x], [1, 330, 1], EV_SYN];
+const stripMove = (x) => [[3, 53, x], [3, 0, x], EV_SYN];
+const stripUp = () => [[3, 57, -1], [1, 330, 0], EV_SYN];
+
+async function touchStrip({ gesture, x = 384, x2, duration_ms = 300, hold_ms = 1000 }) {
+  await requireDevice();
+  const device = await findStripDevice();
+  const clampX = (v) => Math.max(0, Math.min(768, Math.round(v)));
+  const lines = [printfEvents(stripDown(clampX(x)), device)];
+  if (gesture === "tap") {
+    lines.push("sleep 0.05");
+  } else if (gesture === "hold") {
+    lines.push(`sleep ${Math.max(0, hold_ms) / 1000}`);
+  } else if (gesture === "swipe") {
+    if (x2 === undefined) throw new Error("swipe needs x2");
+    // A printf on the camera costs ~50 ms, so that is the sample period; anything
+    // shorter is unreachable and only the remainder is slept.
+    const n = Math.max(2, Math.round(duration_ms / 50));
+    const pause = Math.max(0, duration_ms / n - 50) / 1000;
+    for (let i = 1; i <= n; i++) {
+      if (pause > 0) lines.push(`sleep ${pause.toFixed(3)}`);
+      lines.push(printfEvents(stripMove(clampX(x + ((x2 - x) * i) / n)), device));
+    }
+  } else {
+    throw new Error("gesture must be tap, swipe or hold");
+  }
+  lines.push(printfEvents(stripUp(), device));
+  const script = "/data/local/tmp/openlight-strip.sh";
+  const dir = await mkdtemp(join(tmpdir(), "openlight-"));
+  try {
+    const local = join(dir, "strip.sh");
+    await writeFile(local, lines.join("\n") + "\n");
+    await adb(["push", local, script]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  const started = Date.now();
+  const res = await sh(`sh ${script}; rm -f ${script}`);
+  if (!res.ok) return `FAILED: ${res.stderr.trim()}`;
+  const what = gesture === "swipe" ? `swipe ${clampX(x)}→${clampX(x2)}` : `${gesture} at ${clampX(x)}`;
+  return `${what} on ${device} took ${Date.now() - started} ms. The strip only acts when enabled in settings (touchstrip). With debug logs on, 'logs filter=ZoomController' shows where the zoom settled.`;
 }
 
 async function key({ key }) {
@@ -668,6 +747,23 @@ const TOOLS = [
       required: ["x1", "y1", "x2", "y2"],
     },
     handler: swipe,
+  },
+  {
+    name: "touch_strip",
+    description:
+      "Finger on the touch strip (separate input device, X 0..768, left = wide, right = tele). tap: at the ends (<100, >700) jumps to the next prime; swipe: x→x2 over duration_ms, continuous zoom with acceleration; hold: at an end for hold_ms, zooms continuously.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        gesture: { type: "string", enum: ["tap", "swipe", "hold"] },
+        x: { type: "number", description: "start position 0..768, default 384" },
+        x2: { type: "number", description: "swipe end position" },
+        duration_ms: { type: "number", description: "swipe duration, default 300" },
+        hold_ms: { type: "number", description: "hold duration, default 1000" },
+      },
+      required: ["gesture"],
+    },
+    handler: touchStrip,
   },
   {
     name: "key",

@@ -13,7 +13,7 @@
 | Гистограмма | `histogram.enable=false` | седьмой пункт в тулбаре фоторежима, `HistogramView` создаётся |
 | Разрешение видео выше FullHD | потолок в коде | 2688×1512 @ 38.9 Мбит/с, подтверждено `ffprobe` |
 | Тепловая защита | ссылка на чужой пакет с нашим префиксом | `Connected to Thermal Monitor Service`, состояние `SAFE` |
-| Строка «touchstrip» в настройках | `isImplemented=false` в `SettingAdapter` | пункт открыт; сама полоса включается переключателем |
+| Строка «touchstrip» в настройках | `isImplemented=false` в `SettingAdapter`; `resetCameraPreference` стирал выбор на каждом запуске | пункт открыт, выбор сохраняется (15.10); зум со стрипа — `ZoomController` |
 
 ## Порядок работ
 
