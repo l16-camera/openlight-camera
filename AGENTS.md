@@ -15,6 +15,7 @@
 | `scripts/lri-mono/` | разбор контейнера `.lri`, извлечение монохромных кадров |
 | `vendor/Light-L16-Archive/` | сабмодуль архива (форк `isamarin/light-l16`) |
 | `features.prop` | флаги, кладётся на камеру в `/sdcard` |
+| `mcp/openlight-mcp.mjs` | MCP-сервер камеры через adb: UI, логи, запрос к HAL, запись превью |
 
 ## Железо, без чего всё непонятно
 

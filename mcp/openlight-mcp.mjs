@@ -17,7 +17,21 @@
  * /sdcard/fkitten.txt or /sdcard/lightest.txt to exist, gated by the
  * feature.cli_support flag (default true).
  *
- * Transport: MCP over stdio, newline-delimited JSON-RPC 2.0. No dependencies.
+ * Beyond the intents: screenshot / tap / swipe / key / ui_tree / tap_text for the UI,
+ * camera_request for the last CaptureRequest the HAL actually received (dumpsys
+ * media.camera — the ground truth for effect mode, focal length, AF trigger),
+ * record_preview for per-frame colour saturation of the viewfinder, set_feature to
+ * edit one features.prop key in place, restart_app to apply it.
+ *
+ * Gotchas measured on the device:
+ *   - mode_test wants the mode name, e.g. "mono", "auto", "manual". Before 2026.10.15.0
+ *     the label match was case-sensitive and "AUTO" killed the app (System.exit(2)).
+ *   - The mode menu is drawn by hand: it has no text nodes for tap_text. Use mode_test.
+ *   - The right screen edge is the system back gesture; swipes there leave the app.
+ *   - LogUtil.d/v are silent unless debug_on_user=true (set_feature + restart_app).
+ *
+ * Transport: MCP over stdio, newline-delimited JSON-RPC 2.0. No dependencies beyond
+ * adb, plus sips (screenshot) and ffmpeg (record_preview) on the host.
  *
  * Env:
  *   OPENLIGHT_ADB_SERIAL  target device (default: the only connected one)
@@ -25,18 +39,22 @@
  */
 
 import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
 const PROTOCOL_VERSION = "2025-06-18";
-const SERVER_INFO = { name: "openlight-camera", version: "1.0.0" };
+const SERVER_INFO = { name: "openlight-camera", version: "1.1.0" };
 
 const BETA_PACKAGE = process.env.OPENLIGHT_PACKAGE || "openlight.co.lightcamera";
 const STOCK_PACKAGE = "light.co.lightcamera";
 const LAUNCH_ACTIVITY = "openlight.co.camera.CameraActivity";
 const CITEST_ACTION = "openlight.co.intent.CITEST_INTENT";
 const DCIM = "/sdcard/DCIM/Camera";
+const FEATURES = "/sdcard/features.prop";
 
 /** CITest enum → bundle key, with the value each dispatch expects. */
 const CONTROLS = {
@@ -45,7 +63,7 @@ const CONTROLS = {
   ev: { key: "ev_test", hint: "exposure compensation index" },
   flash: { key: "flash_test", hint: "on | off | auto" },
   metering: { key: "metering_test", hint: "center | center-weighted | spot | touch-weighted" },
-  mode: { key: "mode_test", hint: "camera mode name" },
+  mode: { key: "mode_test", hint: "mode name: auto | mono | manual | iso | shutter | video" },
   timer: { key: "timer_test", hint: "3 | 5 | 10 | 20 | off" },
   burst: { key: "burst_test", hint: "on | off" },
   caf: { key: "caf_test", hint: "continuous AF mode" },
@@ -74,6 +92,21 @@ async function adb(args, { timeout = 60000, maxBuffer = 32 * 1024 * 1024 } = {})
 }
 
 const sh = (script, opts) => adb(["shell", script], opts);
+
+/** Raw bytes from `adb exec-out`, for screenshots: `shell` would mangle binary on this adbd. */
+async function adbBytes(args, { timeout = 30000 } = {}) {
+  const { stdout } = await execFileAsync("adb", adbArgs(["exec-out", ...args]), {
+    timeout,
+    encoding: "buffer",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+async function host(cmd, args, { timeout = 120000 } = {}) {
+  const { stdout, stderr } = await execFileAsync(cmd, args, { timeout, maxBuffer: 64 * 1024 * 1024 });
+  return { stdout: stdout ?? "", stderr: stderr ?? "" };
+}
 
 /** Quote a value for safe interpolation into an adb shell command line. */
 const q = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -147,7 +180,42 @@ async function appStatus() {
   }
   const { stdout: focus } = await sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'");
   out.push(`foreground: ${focus.trim() || "unknown"}`);
+  // The L16 runs hot with the preview open; 45 °C is where AGENTS.md says to stop.
+  const { stdout: batt } = await sh("dumpsys battery | grep -E 'level|temperature'");
+  const temp = /temperature:\s*(\d+)/.exec(batt);
+  const level = /level:\s*(\d+)/.exec(batt);
+  out.push(
+    `battery: ${level ? level[1] + "%" : "?"}, ${temp ? (Number(temp[1]) / 10).toFixed(1) + " °C" : "?"}`
+  );
   return out.join("\n");
+}
+
+/**
+ * Set one key in /sdcard/features.prop without touching the rest of the file. The file
+ * on the camera is the full commented copy from the repo and both the stock app and
+ * ours read it, so rewriting it wholesale would silently reset every other flag. The
+ * first edit keeps a copy as features.prop.orig.
+ */
+async function setFeatureKey(key, value) {
+  if (!/^[A-Za-z0-9_.]+$/.test(key)) throw new Error(`bad key '${key}'`);
+  if (/[\n'\\]/.test(String(value))) throw new Error("value must be a single plain line");
+  const script = [
+    `f=${FEATURES}`,
+    `[ -f "$f" ] || touch "$f"`,
+    `[ -f "$f.orig" ] || cp "$f" "$f.orig"`,
+    // Toybox sed on Android 6 has no -i; rebuild through a temp file.
+    `if grep -q '^[#]*${key}=' "$f"; then sed 's|^[#]*${key}=.*|${key}=${value}|' "$f" > "$f.tmp" && cat "$f.tmp" > "$f" && rm "$f.tmp"; else echo '${key}=${value}' >> "$f"; fi`,
+    `grep '^${key}=' "$f"`,
+  ].join("; ");
+  const res = await sh(script);
+  if (!res.ok) throw new Error(res.stderr.trim() || "edit failed");
+  return res.stdout.trim();
+}
+
+async function setFeature({ key, value }) {
+  await requireDevice();
+  const line = await setFeatureKey(key, value);
+  return `${line}\n(restart the camera app to apply — restart_app)`;
 }
 
 async function enableTestMode({ debug_logs = true }) {
@@ -157,15 +225,13 @@ async function enableTestMode({ debug_logs = true }) {
   const marker = await sh("touch /sdcard/lightest.txt && ls -l /sdcard/lightest.txt");
   steps.push(`marker: ${marker.ok ? marker.stdout.trim() : `FAILED ${marker.stderr.trim()}`}`);
 
+  steps.push(`features.prop: ${await setFeatureKey("feature.cli_support", "true")}`);
   if (debug_logs) {
-    // FeatureManager reads /sdcard/features.prop at startup; debug_on_user
-    // flips CommonConstants.IS_USER_BUILD, which gates LogUtil entirely.
-    const props = ["debug_on_user=true", "feature.cli_support=true"].join("\\n");
-    const write = await sh(`printf '%b\\n' ${q(props)} > /sdcard/features.prop && cat /sdcard/features.prop`);
-    steps.push(`features.prop: ${write.ok ? write.stdout.trim() : `FAILED ${write.stderr.trim()}`}`);
+    // debug_on_user flips CommonConstants.IS_USER_BUILD, which gates LogUtil.d/v.
+    steps.push(`features.prop: ${await setFeatureKey("debug_on_user", "true")}`);
   }
 
-  steps.push("NOTE: restart the camera app for these to take effect.");
+  steps.push("NOTE: restart the camera app for these to take effect (restart_app).");
   return steps.join("\n");
 }
 
@@ -245,6 +311,204 @@ async function pullCapture({ name, dest }) {
   const target = dest || `./${name}`;
   const res = await adb(["pull", `${DCIM}/${name}`, target], { timeout: 600000 });
   return res.ok ? res.stdout.trim() : `FAILED: ${res.stderr.trim()}`;
+}
+
+async function restartApp() {
+  await requireDevice();
+  await sh(`am force-stop ${q(BETA_PACKAGE)}`);
+  const res = await sh(`am start -W -n ${q(`${BETA_PACKAGE}/${LAUNCH_ACTIVITY}`)}`);
+  return res.ok ? res.stdout.trim() : `FAILED: ${res.stderr.trim()}`;
+}
+
+/** PNG of the screen, downscaled on the host so it fits a tool result. */
+async function screenshot({ scale = 0.5 }) {
+  await requireDevice();
+  const png = await adbBytes(["screencap", "-p"]);
+  const dir = await mkdtemp(join(tmpdir(), "openlight-"));
+  try {
+    const raw = join(dir, "raw.png");
+    const out = join(dir, "shot.jpg");
+    await writeFile(raw, png);
+    const width = Math.max(160, Math.round(1920 * Number(scale)));
+    await host("sips", ["-Z", String(width), "-s", "format", "jpeg", "-s", "formatOptions", "75", raw, "--out", out]);
+    const data = (await readFile(out)).toString("base64");
+    return {
+      content: [
+        { type: "image", data, mimeType: "image/jpeg" },
+        { type: "text", text: `screen 1920×1080, image scaled to ${width} px wide — multiply coordinates by ${(1920 / width).toFixed(3)} for tap` },
+      ],
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function tap({ x, y }) {
+  await requireDevice();
+  const res = await sh(`input tap ${Math.round(x)} ${Math.round(y)}`);
+  return res.ok ? `tapped ${Math.round(x)},${Math.round(y)}` : `FAILED: ${res.stderr.trim()}`;
+}
+
+async function swipe({ x1, y1, x2, y2, duration_ms = 300 }) {
+  await requireDevice();
+  const res = await sh(
+    `input swipe ${[x1, y1, x2, y2, duration_ms].map((v) => Math.round(v)).join(" ")}`
+  );
+  return res.ok ? "swiped" : `FAILED: ${res.stderr.trim()}`;
+}
+
+async function key({ key }) {
+  await requireDevice();
+  if (!/^[A-Z0-9_]+$/.test(key)) throw new Error("key must be a KEYCODE_* name or number");
+  const res = await sh(`input keyevent ${key}`);
+  return res.ok ? `sent ${key}` : `FAILED: ${res.stderr.trim()}`;
+}
+
+/** Visible view nodes with text or an id, from uiautomator. */
+async function uiNodes() {
+  const dump = await sh("uiautomator dump /sdcard/openlight-ui.xml >/dev/null 2>&1; cat /sdcard/openlight-ui.xml", {
+    timeout: 30000,
+  });
+  const xml = dump.stdout;
+  if (!xml.includes("<node")) {
+    throw new Error(`uiautomator gave no tree: ${(dump.stderr || xml).trim().slice(0, 300)}`);
+  }
+  const nodes = [];
+  const attr = (tag, name) => {
+    const m = new RegExp(`\\b${name}="([^"]*)"`).exec(tag);
+    return m ? m[1] : "";
+  };
+  for (const m of xml.matchAll(/<node\b[^>]*>/g)) {
+    const tag = m[0];
+    const b = /\[(\d+),(\d+)\]\[(\d+),(\d+)\]/.exec(attr(tag, "bounds"));
+    if (!b) continue;
+    const [x1, y1, x2, y2] = b.slice(1).map(Number);
+    nodes.push({
+      text: attr(tag, "text"),
+      desc: attr(tag, "content-desc"),
+      id: attr(tag, "resource-id").replace(`${BETA_PACKAGE}:id/`, ""),
+      cls: attr(tag, "class").split(".").pop(),
+      clickable: attr(tag, "clickable") === "true",
+      x1, y1, x2, y2,
+      cx: Math.round((x1 + x2) / 2),
+      cy: Math.round((y1 + y2) / 2),
+    });
+  }
+  return nodes;
+}
+
+async function uiTree({ all = false }) {
+  await requireDevice();
+  const nodes = (await uiNodes()).filter((n) => all || n.text || n.desc || n.id);
+  return nodes
+    .map(
+      (n) =>
+        `${n.cls}${n.id ? " #" + n.id : ""}${n.text ? ` "${n.text}"` : ""}${n.desc ? ` [${n.desc}]` : ""}` +
+        ` @${n.cx},${n.cy} (${n.x1},${n.y1}-${n.x2},${n.y2})${n.clickable ? " clickable" : ""}` +
+        // uiautomator reports a 1776 px wide window (the nav bar's width is taken off) while
+        // the app draws to 1920: anything on the right control column is cut at 1776, and
+        // its centre is wrong. Take those coordinates from a screenshot instead.
+        (n.x2 >= 1776 ? " clipped-right" : "")
+    )
+    .join("\n");
+}
+
+async function tapText({ text, exact = false }) {
+  await requireDevice();
+  const want = String(text).toLowerCase();
+  const hit = (await uiNodes()).find((n) => {
+    const t = (n.text || n.desc).toLowerCase();
+    return exact ? t === want : t.includes(want);
+  });
+  if (!hit) throw new Error(`no visible node with text '${text}' (try ui_tree)`);
+  await sh(`input tap ${hit.cx} ${hit.cy}`);
+  return `tapped "${hit.text || hit.desc}" at ${hit.cx},${hit.cy}`;
+}
+
+/**
+ * The last CaptureRequest the framework sent to the HAL, from `dumpsys media.camera`.
+ * This is what the hardware was actually asked for — the way to check an effect mode,
+ * focal length or AF trigger without trusting the app's own logs.
+ */
+async function cameraRequest({ keys, all = false }) {
+  await requireDevice();
+  const { stdout } = await sh("dumpsys media.camera", { timeout: 30000 });
+  const start = stdout.indexOf("Last request sent:");
+  if (start < 0) return "no 'Last request sent' — is the camera open?";
+  const lines = stdout.slice(start).split("\n");
+  const entries = [];
+  for (let i = 2; i < lines.length; i++) {
+    const m = /^\s+([a-zA-Z0-9_.]+) \([0-9a-f]+\): /.exec(lines[i]);
+    if (m) {
+      entries.push([m[1], (lines[i + 1] || "").trim()]);
+      i++;
+    } else if (entries.length && !/^\s{6,}/.test(lines[i])) {
+      break;
+    }
+  }
+  const wanted = all
+    ? null
+    : keys && keys.length
+      ? keys
+      : [
+          "android.control.captureIntent",
+          "android.control.effectMode",
+          "android.control.mode",
+          "android.control.afMode",
+          "android.control.afTrigger",
+          "android.control.aeMode",
+          "android.lens.focalLength",
+          "android.sensor.exposureTime",
+          "android.sensor.sensitivity",
+          "android.scaler.cropRegion",
+        ];
+  return entries
+    .filter(([k]) => !wanted || wanted.some((w) => k === w || k.endsWith("." + w)))
+    .map(([k, v]) => `${k} = ${v}`)
+    .join("\n");
+}
+
+/**
+ * Record the screen and score every frame's colour saturation in the preview area.
+ * A grey viewfinder scores ~1; a colour frame on a colourful scene scores tens.
+ */
+async function recordPreview({ seconds = 6, crop = "1300:1000:300:40", threshold = 4, keep }) {
+  await requireDevice();
+  const secs = Math.max(1, Math.min(60, Math.round(seconds)));
+  const remote = "/sdcard/openlight-rec.mp4";
+  await sh(`screenrecord --time-limit ${secs} --bit-rate 8000000 ${remote}`, { timeout: (secs + 15) * 1000 });
+  const dir = await mkdtemp(join(tmpdir(), "openlight-"));
+  const local = keep || join(dir, "rec.mp4");
+  try {
+    const pulled = await adb(["pull", remote, local], { timeout: 120000 });
+    await sh(`rm ${remote}`);
+    if (!pulled.ok) return `FAILED pull: ${pulled.stderr.trim()}`;
+    const { stdout } = await host("ffmpeg", [
+      "-v", "error", "-i", local,
+      "-vf", `crop=${crop},signalstats,metadata=print:key=lavfi.signalstats.SATAVG:file=-`,
+      "-f", "null", "-",
+    ]);
+    const frames = [];
+    let t = null;
+    for (const line of stdout.split("\n")) {
+      const pt = /pts_time:([\d.]+)/.exec(line);
+      if (pt) t = Number(pt[1]);
+      const sat = /SATAVG=([\d.]+)/.exec(line);
+      if (sat && t !== null) frames.push([t, Number(sat[1])]);
+    }
+    if (!frames.length) return "no frames decoded";
+    const sorted = frames.map((f) => f[1]).sort((a, b) => a - b);
+    const hot = frames.filter((f) => f[1] > threshold);
+    const out = [
+      `frames ${frames.length}, saturation min ${sorted[0].toFixed(2)} median ${sorted[sorted.length >> 1].toFixed(2)} max ${sorted[sorted.length - 1].toFixed(2)}`,
+      `frames above ${threshold}: ${hot.length}`,
+      ...hot.slice(0, 40).map(([t2, s2]) => `  t=${t2.toFixed(2)}s sat=${s2.toFixed(2)}`),
+    ];
+    if (keep) out.push(`video kept at ${keep}`);
+    return out.join("\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 // ------------------------------------------------------------------ tool table
@@ -355,6 +619,109 @@ const TOOLS = [
     },
     handler: pullCapture,
   },
+  {
+    name: "set_feature",
+    description:
+      "Set one key in /sdcard/features.prop in place (the rest of the file is kept; first edit saves features.prop.orig). Both the stock and the beta app read this file. Needs restart_app.",
+    inputSchema: {
+      type: "object",
+      properties: { key: { type: "string" }, value: { type: "string" } },
+      required: ["key", "value"],
+    },
+    handler: setFeature,
+  },
+  {
+    name: "restart_app",
+    description: "Force-stop and relaunch the beta camera app (applies features.prop changes).",
+    inputSchema: { type: "object", properties: {} },
+    handler: restartApp,
+  },
+  {
+    name: "screenshot",
+    description: "Screenshot of the camera screen (1920×1080 landscape), returned as an image.",
+    inputSchema: {
+      type: "object",
+      properties: { scale: { type: "number", description: "0.1–1, default 0.5" } },
+    },
+    handler: screenshot,
+  },
+  {
+    name: "tap",
+    description: "Tap at screen coordinates (1920×1080). In the viewfinder this is tap-to-focus.",
+    inputSchema: {
+      type: "object",
+      properties: { x: { type: "number" }, y: { type: "number" } },
+      required: ["x", "y"],
+    },
+    handler: tap,
+  },
+  {
+    name: "swipe",
+    description: "Swipe between two screen points. Avoid the right screen edge: it is the system back gesture.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x1: { type: "number" }, y1: { type: "number" },
+        x2: { type: "number" }, y2: { type: "number" },
+        duration_ms: { type: "number", description: "default 300" },
+      },
+      required: ["x1", "y1", "x2", "y2"],
+    },
+    handler: swipe,
+  },
+  {
+    name: "key",
+    description: "Send a key event, e.g. KEYCODE_BACK, KEYCODE_HOME, KEYCODE_CAMERA.",
+    inputSchema: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
+    handler: key,
+  },
+  {
+    name: "ui_tree",
+    description: "Visible views (class, id, text, centre, bounds) from uiautomator — find what to tap.",
+    inputSchema: {
+      type: "object",
+      properties: { all: { type: "boolean", description: "include nodes with no text or id" } },
+    },
+    handler: uiTree,
+  },
+  {
+    name: "tap_text",
+    description: "Tap the first visible view whose text or description contains the string, e.g. a camera mode in the open mode menu.",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string" }, exact: { type: "boolean" } },
+      required: ["text"],
+    },
+    handler: tapText,
+  },
+  {
+    name: "camera_request",
+    description:
+      "Fields of the last CaptureRequest sent to the HAL (dumpsys media.camera): effect mode, focal length, AF trigger, exposure… Ground truth for what the app asked the hardware for.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keys: { type: "array", items: { type: "string" }, description: "metadata keys or suffixes, e.g. 'effectMode'" },
+        all: { type: "boolean", description: "dump every key" },
+      },
+    },
+    handler: cameraRequest,
+  },
+  {
+    name: "record_preview",
+    description:
+      "Screen-record for N seconds and report per-frame colour saturation of the preview area — catches a single colour frame in mono mode. Do the actions (tap, mode switch) while it runs from a parallel call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        seconds: { type: "number", description: "1–60, default 6" },
+        crop: { type: "string", description: "ffmpeg crop w:h:x:y of the preview, default 1300:1000:300:40" },
+        threshold: { type: "number", description: "saturation above which a frame is listed, default 4" },
+        keep: { type: "string", description: "host path to keep the mp4" },
+      },
+    },
+    handler: recordPreview,
+  },
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
@@ -399,8 +766,11 @@ async function handle(request) {
       const tool = TOOLS_BY_NAME.get(params?.name);
       if (!tool) return respondError(id, -32602, `Unknown tool: ${params?.name}`);
       try {
-        const text = await tool.handler(params.arguments ?? {});
-        return respond(id, { content: [{ type: "text", text: String(text) }] });
+        const result = await tool.handler(params.arguments ?? {});
+        if (result && typeof result === "object" && Array.isArray(result.content)) {
+          return respond(id, result);
+        }
+        return respond(id, { content: [{ type: "text", text: String(result) }] });
       } catch (err) {
         return respond(id, {
           content: [{ type: "text", text: `Error: ${err.message ?? err}` }],
