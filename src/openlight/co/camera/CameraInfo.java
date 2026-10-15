@@ -321,7 +321,7 @@ public class CameraInfo {
         SIMULATED_FOCAL_LENGTH2(35) {
             @Override
             public boolean isDefault(CameraMode mode) {
-                return mode.isAuto() || mode.isIso() || mode.isShutter() || mode.isManual();
+                return (mode.isAuto() || mode.isIso() || mode.isShutter() || mode.isManual()) && !mode.isAstro();
             }
         },
         SIMULATED_FOCAL_LENGTH3(75),

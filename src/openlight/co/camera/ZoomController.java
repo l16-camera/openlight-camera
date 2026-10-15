@@ -1,5 +1,7 @@
 package openlight.co.camera;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.Choreographer;
@@ -208,6 +210,37 @@ public final class ZoomController implements Choreographer.FrameCallback {
         strip.unregisterEventListener(c.mStripEvents);
         strip.registerEventListener(c.mStripEvents);
         strip.setDragListener(c.mStripDrag);
+    }
+
+    /**
+     * Glide to the wide end (28 mm). Astro mode calls this on entry: the zoom otherwise
+     * carries over from the previous mode, and only the 28 mm group has A2. The mode
+     * change keeps the camera busy for a moment, so it retries until begin() succeeds.
+     */
+    public static void toWidest() {
+        toWidest(10);
+    }
+
+    private static void toWidest(final int triesLeft) {
+        ZoomController c = get();
+        if (c.mFragment != null && c.begin(ZoomWheel.EventType.TOUCHSTRIP)) {
+            c.mVelocity = 0.0F;
+            c.mHoldDir = 0;
+            c.mTarget = 0.0F;
+            c.touched();
+            c.mDetentApplied = true;
+            LogUtil.i(TAG, "[ZOOM] to widest");
+            return;
+        }
+        if (triesLeft > 0) {
+            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                public void run() {
+                    toWidest(triesLeft - 1);
+                }
+            }, 200L);
+        } else {
+            LogUtil.w(TAG, "[ZOOM] to widest: camera stayed busy");
+        }
     }
 
     public static void detach() {

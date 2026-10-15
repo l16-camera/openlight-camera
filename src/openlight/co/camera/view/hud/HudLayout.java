@@ -396,6 +396,7 @@ public class HudLayout extends ControlManager implements OrientationListener {
                 updateHudIndividualValue(HudValue.EV);
                 // fall through
             case MANUAL:
+            case ASTRO:
                 updateHudIndividualValue(HudValue.ZOOM);
                 updateHudIndividualValue(HudValue.RESOLUTION);
         }

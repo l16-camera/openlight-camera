@@ -26,6 +26,13 @@ import openlight.co.lib.utils.LogUtil;
  * the firmware drops its tripod flag (co.light.tripod_fw 1 → 0), or gravity in camera
  * axes turns by more than MOVE_DEG (re-aimed). Taps and zoom still release it, as they
  * always did, because those are the user asking for a new focus.
+ *
+ * What the app cannot keep: a camera reopen. Checked on the L16 15.10 — with the app's
+ * initial focus skipped and no AF trigger sent at all, the lenses still moved (A2 2384 →
+ * 6480, new af_info distances; L16_00299 → L16_00300): the firmware refocuses by itself
+ * when the camera opens, and Camera2 has no key to put a lens back. So on reopen the
+ * lock is dropped with a message, and only the app's own refocus is skipped — at night
+ * it would just pick the dark scene.
  */
 public final class AstroFocusGuard implements SensorEventListener {
     private static final String TAG = "AstroFocusGuard";
@@ -99,13 +106,13 @@ public final class AstroFocusGuard implements SensorEventListener {
         boolean lost = mLastTripod != null && mLastTripod != 0 && tripod == 0;
         mLastTripod = tripod;
         if (lost && mLocked && astro()) {
-            release("camera left the tripod", true);
+            release("камеру сняли со штатива", true);
         }
     }
 
     /**
-     * Asked when the camera reopens and would run its initial focus. True means skip it
-     * and keep the lens where the lock left it.
+     * Asked when the camera reopens and would run its initial focus. True means skip it.
+     * A held lock is dropped either way: the firmware has already refocused (see above).
      */
     public boolean keepLockOnReopen() {
         if (!mLocked || !astro()) {
@@ -114,11 +121,15 @@ public final class AstroFocusGuard implements SensorEventListener {
         if (mGravityAtLock != null && mHaveGravity) {
             double turned = angleDeg(mGravityAtLock, mGravity);
             if (turned > MOVE_DEG) {
-                release(String.format("re-aimed by %.1f°", turned), true);
+                release(String.format("камеру перенаправили на %.1f°", turned), true);
                 return false;
             }
         }
-        LogUtil.i(TAG, "[ASTRO] camera did not move: keeping focus lock across reopen");
+        // A fresh camera session reports tripod_fw = 0 for its first ~0.7 s and only then
+        // 1 (measured 15.10, L16_00296 → 00297). Start the tripod history over, or that
+        // first 0 would read as "left the tripod" against the 1 from before the reopen.
+        mLastTripod = null;
+        release("камера переоткрыта, прошивка перефокусировала — наведите заново", true);
         return true;
     }
 
@@ -174,7 +185,7 @@ public final class AstroFocusGuard implements SensorEventListener {
         }
         double turned = angleDeg(mGravityAtLock, mGravity);
         if (turned > MOVE_DEG) {
-            release(String.format("re-aimed by %.1f°", turned), true);
+            release(String.format("камеру перенаправили на %.1f°", turned), true);
         }
     }
 

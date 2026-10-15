@@ -283,10 +283,10 @@ public abstract class CameraManager {
                             FocusManager fmgr = (FocusManager) mFocusManager.get();
                             if (fmgr.isIdle()) {
                                 if (AstroFocusGuard.get().keepLockOnReopen()) {
-                                    // Astro: the lens is parked where the user locked it and
-                                    // the camera has not moved; a refocus on the night sky
-                                    // would drag it to a few metres.
-                                    LogUtil.i(TAG, "Initial focus skipped: astro focus lock kept");
+                                    // Astro: the firmware has refocused on open already and the
+                                    // guard has told the user; our own refocus on the night
+                                    // sky would only drag the lenses to a few metres.
+                                    LogUtil.i(TAG, "Initial focus skipped: astro, camera not moved");
                                     ((SmartAFTriggerMgr) mSmartAFTriggerMgrProvider.get()).restoreScreenLock();
                                     fmgr.setFocusCompleted();
                                 } else {
@@ -818,6 +818,14 @@ public abstract class CameraManager {
             mUpdatePreviewListener.updateModeChange();
         }
         updateCameraModeOnChange();
+        if (mode.isAstro() && !oldMode.isAstro()) {
+            // The zoom carries over between photo modes; astro works on A2, at 28 mm.
+            new Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+                public void run() {
+                    openlight.co.camera.ZoomController.toWidest();
+                }
+            });
+        }
     }
 
     public void setCurrentCameraState(State state) {
