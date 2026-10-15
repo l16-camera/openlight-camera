@@ -6,6 +6,7 @@ import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.OrientationEventListener;
 import android.view.View;
+import openlight.co.camera.astro.AstroNightUi;
 import openlight.co.camera.view.rotate.OrientationsController;
 import openlight.co.camera.view.setting.SettingsActivity;
 import openlight.co.lib.content.CamPrefsFactory;
@@ -114,6 +115,7 @@ public class CameraActivity extends BaseActivity {
     public void onPause() {
         super.onPause();
         mOrientationListener.disable();
+        AstroNightUi.detach(this);
     }
 
     @Override
@@ -123,6 +125,7 @@ public class CameraActivity extends BaseActivity {
         CrashTrace.install();
         mOrientationListener.enable();
         Utils.get().updateLockedState();
+        AstroNightUi.attach(this);
     }
 
     @Override

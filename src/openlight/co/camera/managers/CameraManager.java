@@ -1,6 +1,7 @@
 package openlight.co.camera.managers;
 
 import openlight.co.camera.astro.AstroFocusGuard;
+import openlight.co.camera.astro.AstroNightUi;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -313,6 +314,7 @@ public abstract class CameraManager {
                                 openlight.co.lightsdk.camera2.CaptureResult.Parser p2 = openlight.co.lightsdk.camera2.CaptureResult.Parser.get(result);
                                 mUpdatePreviewListener.updateTripodAssist(p2.isOnTripod());
                                 AstroFocusGuard.get().onTripod(p2.isOnTripod());
+                                AstroNightUi.update();
                                 logStackedChange(p1.isCaptureStacked());
                                 mUpdatePreviewListener.updateHandshakeAssist(showHandshakeAssist(result));
                             }

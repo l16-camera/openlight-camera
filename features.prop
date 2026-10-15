@@ -33,6 +33,8 @@ mono.feature=true
 # restarts until the camera is moved (tripod flag lost or re-aimed by more than 3°).
 # See astro-plan.md. On by default; set false to hide the mode.
 astro.feature=true
+# Astro mode turns the whole screen red and dim to keep dark adaptation; false keeps it normal.
+astro.night=true
 
 # --- Video ---
 # Enable video mode entirely (default: true)
