@@ -11,8 +11,10 @@ import openlight.co.lib.utils.FeatureManager;
  * Two of the sixteen modules carry an AR1335 with no colour filter array: A2 rides
  * with the 28 mm group, C6 with the 150 mm one. Their planes are panchromatic — full
  * 4160x3120, no demosaic, and about 1.2 stops more light than a colour module on the
- * same scene. At 35, 50 or 70 mm no panchromatic plane reaches the .lri at all, which
- * is why this mode offers exactly two focal lengths rather than the usual range.
+ * same scene. A panchromatic plane rides along with every capture — A2 below 70 mm, C6
+ * from 70 mm up (corpus census, 273 .lri, 2026-10-15) — but only at 28 and 150 mm does
+ * it see the same field as the frame, which is why this mode offers exactly those two
+ * focal lengths rather than the usual range.
  *
  * The camera app cannot render a monochrome JPEG itself — MonoFusion lives in the
  * gallery's libcp.so and the app carries no native libraries of its own. What the mode
