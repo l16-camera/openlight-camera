@@ -4,23 +4,33 @@ import android.app.Activity;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
+import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import java.lang.ref.WeakReference;
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
 import openlight.co.camera.managers.CameraManager;
 import openlight.co.lib.utils.FeatureManager;
 import openlight.co.lib.utils.LogUtil;
 
 /**
- * Night screen for astro mode: everything red, and dim.
+ * Night screen for astro mode: the interface red, the whole screen dim.
  *
  * Dark adaptation takes twenty minutes and one glance at a white screen undoes it; rod
- * cells barely see deep red. So in astro mode the whole window — controls, HUD and the
- * preview itself — goes through a colour matrix that puts each pixel's luminance into
- * the red channel only, and the window brightness drops to a few percent.
+ * cells barely see deep red. So in astro mode every control, the HUD and the astro
+ * panels go through a colour matrix that puts each pixel's luminance into the red
+ * channel only, and the window brightness drops to a few percent. The camera preview
+ * keeps its colours (Igor, 15.10: only the UI) — at 5 % brightness it is dim anyway.
  *
- * The filter sits on the decor view as a hardware layer, which is what makes it reach
- * the TextureView preview too. Toasts are separate windows and stay as they are.
+ * The filter is a hardware layer on every view that does not hold the preview: the
+ * tree is walked from the decor view, groups that contain the TextureView are opened,
+ * everything else gets the layer. Views added later (focus panel, series banner, menus)
+ * are caught on the next layout pass. Toasts are separate windows and stay as they are.
  *
  * Follows the mode by itself: {@link #update()} is cheap and is called with every
  * preview result; it only touches the window when astro mode is entered or left.
@@ -34,6 +44,10 @@ public final class AstroNightUi {
 
     private static WeakReference<Activity> sActivity;
     private static Boolean sApplied;
+    /** Views that carry our red layer, to take it off again. */
+    private static final Set<View> sTinted = Collections.newSetFromMap(new WeakHashMap<View, Boolean>());
+    private static Paint sPaint;
+    private static ViewTreeObserver.OnGlobalLayoutListener sRelayout;
 
     private AstroNightUi() {
     }
@@ -82,27 +96,80 @@ public final class AstroNightUi {
     }
 
     private static void apply(Activity activity, boolean on) {
-        View root = activity.getWindow().getDecorView();
+        final View root = activity.getWindow().getDecorView();
         WindowManager.LayoutParams lp = activity.getWindow().getAttributes();
         if (on) {
-            // Rec. 601 luminance into red; green and blue dark.
-            ColorMatrix m = new ColorMatrix(new float[] {
-                    0.299f, 0.587f, 0.114f, 0, 0,
-                    0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0,
-                    0, 0, 0, 1, 0,
-            });
-            Paint paint = new Paint();
-            paint.setColorFilter(new ColorMatrixColorFilter(m));
-            root.setLayerType(View.LAYER_TYPE_HARDWARE, paint);
+            if (sPaint == null) {
+                // Rec. 601 luminance into red; green and blue dark.
+                ColorMatrix m = new ColorMatrix(new float[] {
+                        0.299f, 0.587f, 0.114f, 0, 0,
+                        0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                        0, 0, 0, 1, 0,
+                });
+                sPaint = new Paint();
+                sPaint.setColorFilter(new ColorMatrixColorFilter(m));
+            }
+            tint(root);
+            if (sRelayout == null) {
+                sRelayout = new ViewTreeObserver.OnGlobalLayoutListener() {
+                    public void onGlobalLayout() {
+                        tint(root);
+                    }
+                };
+                root.getViewTreeObserver().addOnGlobalLayoutListener(sRelayout);
+            }
             lp.screenBrightness = NIGHT_BRIGHTNESS;
         } else {
             AstroFocusPanel.hide(activity);
             AstroSeries.stop("left astro mode");
-            root.setLayerType(View.LAYER_TYPE_NONE, null);
+            if (sRelayout != null) {
+                root.getViewTreeObserver().removeGlobalOnLayoutListener(sRelayout);
+                sRelayout = null;
+            }
+            for (View v : sTinted.toArray(new View[0])) {
+                v.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+            sTinted.clear();
             lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
         }
         activity.getWindow().setAttributes(lp);
-        LogUtil.i(TAG, "[ASTRO] night screen " + (on ? "on" : "off"));
+        LogUtil.i(TAG, "[ASTRO] night screen " + (on ? "on" : "off") + (on ? ", " + sTinted.size() + " views red" : ""));
+    }
+
+    /** Red layer on everything under `v` except the preview. Cheap when nothing changed. */
+    private static void tint(View v) {
+        if (v instanceof TextureView || v instanceof SurfaceView) {
+            return;
+        }
+        if (v instanceof ViewGroup && holdsPreview(v)) {
+            if (sTinted.remove(v)) {
+                v.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                tint(g.getChildAt(i));
+            }
+            return;
+        }
+        if (!sTinted.contains(v)) {
+            v.setLayerType(View.LAYER_TYPE_HARDWARE, sPaint);
+            sTinted.add(v);
+        }
+    }
+
+    private static boolean holdsPreview(View v) {
+        if (v instanceof TextureView || v instanceof SurfaceView) {
+            return true;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                if (holdsPreview(g.getChildAt(i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
