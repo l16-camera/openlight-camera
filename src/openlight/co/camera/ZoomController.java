@@ -93,6 +93,14 @@ public final class ZoomController implements Choreographer.FrameCallback {
     /** No input for this long and nothing moving: the gesture is over. */
     private static final long SETTLE_DELAY_MS = 250L;
 
+    /**
+     * Mono has two stops and nothing worth framing between them, so a drag does not
+     * crawl through the crop range: it banks travel, and once that passes MONO_SWITCH
+     * (about 90 strip units or 90 px) the zoom goes straight to the stop that way. One
+     * switch per gesture; lift and swipe again to come back.
+     */
+    private static final float MONO_SWITCH = 0.08F;
+
     /** In mono mode, travel past this (15 %) toward the other stop commits to it. */
     private static final float MONO_COMMIT = 0.15F;
 
@@ -110,6 +118,9 @@ public final class ZoomController implements Choreographer.FrameCallback {
     private long mLastFrameNanos;
 
     private float mCurrent;
+    /** Mono: travel banked in this gesture, and whether it already switched stops. */
+    private float mMonoTravel;
+    private boolean mMonoSwitched;
     /** Where the gesture started, for the mono commit rule. */
     private float mStart;
     private float mTarget;
@@ -158,6 +169,7 @@ public final class ZoomController implements Choreographer.FrameCallback {
     private final TouchStrip.DragListener mStripDrag = new TouchStrip.DragListener() {
         public boolean onStripDown() {
             mFingerDown = true;
+            newGesture();
             return brake();
         }
 
@@ -169,7 +181,8 @@ public final class ZoomController implements Choreographer.FrameCallback {
         public void onStripUp(float velocity, float travelScale) {
             fingerUp();
             float speed = Math.abs(velocity);
-            if (speed < MOMENTUM_MIN_STRIP_SPEED || speed >= FLING_STRIP_SPEED || !mActive) {
+            if (speed < MOMENTUM_MIN_STRIP_SPEED || speed >= FLING_STRIP_SPEED || !mActive
+                    || MonoMode.isActive()) {
                 return;
             }
             mVelocity = velocity * travelScale * STRIP_LOG_PER_UNIT
@@ -231,6 +244,7 @@ public final class ZoomController implements Choreographer.FrameCallback {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 c.mFingerDown = true;
+                c.newGesture();
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
@@ -239,6 +253,11 @@ public final class ZoomController implements Choreographer.FrameCallback {
             default:
                 break;
         }
+    }
+
+    private void newGesture() {
+        mMonoTravel = 0.0F;
+        mMonoSwitched = false;
     }
 
     private void fingerUp() {
@@ -264,8 +283,28 @@ public final class ZoomController implements Choreographer.FrameCallback {
             return;
         }
         mVelocity = 0.0F;
+        if (MonoMode.isActive()) {
+            if (!mMonoSwitched) {
+                mMonoTravel += dLog;
+                if (Math.abs(mMonoTravel) > MONO_SWITCH) {
+                    mMonoSwitched = true;
+                    mTarget = monoEnd(mMonoTravel > 0.0F);
+                }
+            }
+            touched();
+            return;
+        }
         mTarget = clamp(mTarget + dLog);
         touched();
+    }
+
+    /** The mono stop on the long (true) or wide (false) side. */
+    private float monoEnd(boolean tele) {
+        float end = tele ? -Float.MAX_VALUE : Float.MAX_VALUE;
+        for (Float p : primes()) {
+            end = tele ? Math.max(end, log(p)) : Math.min(end, log(p));
+        }
+        return clamp(end);
     }
 
     private void startHold(int dir) {
@@ -273,6 +312,12 @@ public final class ZoomController implements Choreographer.FrameCallback {
             return;
         }
         mVelocity = 0.0F;
+        if (MonoMode.isActive()) {
+            // Holding an end in mono means "that stop", not a slow crawl to it.
+            mTarget = monoEnd(dir > 0);
+            touched();
+            return;
+        }
         mHoldDir = dir;
         mHoldTime = 0.0F;
         touched();
