@@ -6,6 +6,7 @@ import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.ImageReader;
+import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.text.TextUtils;
 import android.util.Pair;
@@ -58,7 +59,10 @@ public class CaptureManager {
     private CaptureUiUpdate mCaptureUpdateListener;
     private int mPendingUserCaptures = 0;
     private boolean mNativeAspectRatio = true;
-    private State mCurrentState = State.IDLE;
+    private volatile State mCurrentState = State.IDLE;
+    /** Self-timer: when it runs out (uptime ms) and how long it was; 0 when none runs. */
+    private volatile long mTimerEndMs;
+    private volatile long mTimerMs;
     private boolean mIsBurstCapture = false;
     private final AtomicInteger mRequestCounter = new AtomicInteger();
 
@@ -217,8 +221,32 @@ public class CaptureManager {
         if ("timer_off".equals(timerSetting)) {
             takePicture();
         } else if (mCaptureUpdateListener != null) {
+            mTimerMs = timerMs(timerSetting);
+            mTimerEndMs = SystemClock.uptimeMillis() + mTimerMs;
             mCaptureUpdateListener.onStartTimerForCapture(timerSetting);
         }
+    }
+
+    /** "3s" → 3000. */
+    private static long timerMs(String setting) {
+        try {
+            return 1000L * Integer.parseInt(setting.replace("s", "").trim());
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /** Self-timer time left, 0 when no countdown runs. For the astro shutter light. */
+    public long getTimerRemainingMs() {
+        long end = mTimerEndMs;
+        if (end == 0 || mCurrentState != State.PRE_CAPTURE_PROCESSING) {
+            return 0;
+        }
+        return Math.max(0, end - SystemClock.uptimeMillis());
+    }
+
+    public long getTimerTotalMs() {
+        return mTimerMs;
     }
 
     public void takePictureOnTimerComplete() {
@@ -226,6 +254,7 @@ public class CaptureManager {
     }
 
     private void takePicture() {
+        mTimerEndMs = 0;
         CameraManager cameraManager = mCameraManager.get();
         synchronized (cameraManager.getCameraStateLock()) {
             if (mCameraState.getSessionState() != CameraState.SessionState.PREVIEW) {
@@ -265,6 +294,7 @@ public class CaptureManager {
     }
 
     public void resetCapture() {
+        mTimerEndMs = 0;
         mCurrentState = State.IDLE;
     }
 

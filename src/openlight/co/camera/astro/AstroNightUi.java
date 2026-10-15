@@ -56,11 +56,13 @@ public final class AstroNightUi {
         sActivity = new WeakReference<>(activity);
         sApplied = null;
         AstroAnalyzer.register(activity.getApplicationContext());
+        AstroShutterLed.attach();
         update();
     }
 
     public static void detach(Activity activity) {
         AstroSeries.stop("camera screen closed");
+        AstroShutterLed.detach();
         apply(activity, false);
         AstroAnalyzer.unregister(activity.getApplicationContext());
         sActivity = null;

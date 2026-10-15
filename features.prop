@@ -42,6 +42,14 @@ astro.series.pause_s=0
 astro.series.darks=5
 astro.series.max_temp=48
 astro.series.cool_s=90
+# Shutter-button light in astro (red channel, levels 0..255): bright double-flash beacon
+# while focus is unlocked and idle, a flash a second through the self-timer, steady dim
+# red while a frame is taken, dark otherwise. false leaves the light alone.
+astro.led=true
+astro.led.beacon=255
+astro.led.beacon_period_ms=2500
+astro.led.timer=160
+astro.led.capture=12
 
 # --- Video ---
 # Enable video mode entirely (default: true)
