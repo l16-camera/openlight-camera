@@ -13,6 +13,7 @@
 #[path = "../../../scripts/lri-mono/src/container.rs"]
 #[allow(dead_code)]
 mod container;
+pub mod lens;
 
 use container::{LocalSource, Source};
 use lri_proto::{lightheader::LightHeader, Message as _};
@@ -24,6 +25,11 @@ use lumina_core::wcs::{Lens, Radial};
 use std::sync::OnceLock;
 use std::fmt::Write as _;
 use std::time::Instant;
+
+/// A file on local storage as a block source (for the examples).
+pub fn local_source(path: &str) -> Box<dyn container::Source> {
+    Box::new(LocalSource::new(path.to_string()))
+}
 
 /// Black level of the AR1335 planes as the container records it.
 const BLACK: f32 = 42.0;
@@ -50,9 +56,8 @@ fn sky() -> &'static Sky {
     SKY.get_or_init(|| Sky::parse_tsv(BSC))
 }
 
-/// Factory radial distortion of A2, both stages (CRA table and polynomial) folded into
-/// one model, ≤ 0.5 px from the factory function. Measured on body C0700105 — the one
-/// this was built on; another body needs its own numbers from its .lri calibration.
+/// Factory radial distortion of A2 of body C0700105, both stages folded into one model —
+/// the fallback when a frame's own calibration cannot be read (see `lens`).
 fn a2_lens() -> Radial {
     Radial {
         centre: (2082.0, 1503.0),
@@ -180,6 +185,10 @@ pub struct Report {
     pub focal_px: f64,
     pub solution: Option<Solution>,
     pub solve_note: Option<String>,
+    /// Where the distortion model came from ("factory" — this frame's calibration — or
+    /// "builtin") and, for factory, its largest deviation from the factory map in px.
+    pub lens_source: Option<&'static str>,
+    pub lens_fit_px: Option<f64>,
 }
 
 fn median(mut v: Vec<f64>) -> f64 {
@@ -246,6 +255,8 @@ pub fn analyze(path: &str, top: usize) -> Result<Report, String> {
         focal_px: f,
         solution: None,
         solve_note: None,
+        lens_source: None,
+        lens_fit_px: None,
     })
 }
 
@@ -282,7 +293,23 @@ pub fn analyze_and_solve(path: &str, top: usize, lat: f64, lon: f64) -> Result<R
     p.frame = (w, hgt);
     p.final_tolerance_px = 12.0;
     let prior = Prior { lat, lst: lst_deg(julian_day(y, mo, d, h, mi, s), lon), accel };
-    let frame = ScanFrame { centre: c, scale_arcsec_px: scale, flipped: false, lens: Some(Lens::Radial(a2_lens())) };
+    // The frame's own factory calibration first; the built-in numbers are body C0700105's.
+    let (lens, fit) = match lens::read_factory(&src, "A2")
+        .ok()
+        .flatten()
+        .and_then(|f| f.to_radial(w, hgt, 4160.0, 4))
+    {
+        Some((radial, worst)) if worst < 3.0 => {
+            r.lens_source = Some("factory");
+            (radial, Some(worst))
+        }
+        _ => {
+            r.lens_source = Some("builtin");
+            (a2_lens(), None)
+        }
+    };
+    r.lens_fit_px = fit;
+    let frame = ScanFrame { centre: c, scale_arcsec_px: scale, flipped: false, lens: Some(Lens::Radial(lens)) };
     let radius = c.0.hypot(c.1) * scale / 3600.0 + 3.0;
     let t = Instant::now();
     let hit = scan_sky(&r.sources, sky(), radius, &frame, &prior, &ScanGrid::default(), &p);
@@ -344,6 +371,12 @@ impl Report {
                 num(s.ra), num(s.dec), num(s.rotation), num(s.azimuth), num(s.altitude),
                 s.pairs, num(s.residual_px), num(s.scale_arcsec_px), s.tries, s.ms
             );
+        }
+        if let Some(l) = self.lens_source {
+            let _ = write!(o, ",\"lens\":\"{l}\"");
+        }
+        if let Some(f) = self.lens_fit_px {
+            let _ = write!(o, ",\"lens_fit_px\":{}", num(f));
         }
         if let Some(n) = &self.solve_note {
             let _ = write!(o, ",\"solve_note\":\"{}\"", n.replace('"', "'"));
