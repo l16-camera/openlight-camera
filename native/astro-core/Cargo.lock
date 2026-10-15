@@ -231,6 +231,7 @@ dependencies = [
 [[package]]
 name = "lumina-core"
 version = "2026.8.0"
+source = "git+https://github.com/lumina-astronomy-software/desktop.git?rev=6836f5f#6836f5fa4aa5460e17c10015c62d6a69099e92b5"
 
 [[package]]
 name = "memchr"

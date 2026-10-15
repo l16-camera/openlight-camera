@@ -12,8 +12,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 lri-proto = { git = "https://github.com/gennyble/lri-rs", rev = "91365deccbfd1d5686ff62d77d9dea6937fcdb4d" }
 # lumina-core lives in lumina-astronomy-software/desktop, branch feat/lumina-core (MIT,
-# no dependencies). Path until the speed-up commit 33eb75a is pushed; then pin by rev.
-lumina-core = { path = "../../../lumina-desktop/crates/lumina-core" }
+# no dependencies). The repo is private: cargo fetches it with the system git and your
+# credentials (.cargo/config.toml). For local work on both at once, override with
+# [patch."https://github.com/lumina-astronomy-software/desktop.git"] → a path.
+lumina-core = { git = "https://github.com/lumina-astronomy-software/desktop.git", rev = "6836f5f" }
 flate2 = "1"
 jni = { version = "0.21", default-features = false }
 

@@ -1,0 +1,3 @@
+[net]
+# lumina-astronomy-software/desktop is private: let the system git use its credentials.
+git-fetch-with-cli = true
