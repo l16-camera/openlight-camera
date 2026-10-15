@@ -30,7 +30,8 @@ import org.json.JSONObject;
  * Tap to close; the next analysis replaces it.
  */
 public final class AstroFocusPanel extends View {
-    private static final int CELL = 210;
+    private static final int CELL = 196;
+    private static final int BUTTON_H = 64;
     private static final int GAP = 8;
     private static final int LABEL = 34;
     private static final int HIST_H = 110;
@@ -47,6 +48,10 @@ public final class AstroFocusPanel extends View {
     private final Paint mPix = new Paint();
     private final Paint mBar = new Paint();
     private final Paint mBack = new Paint();
+    private final Paint mButton = new Paint();
+    /** Series button, or null while a series runs. */
+    private final String mSeries;
+    private final Rect mButtonRect = new Rect();
 
     private AstroFocusPanel(Context context, JSONObject o, String title, String footer) {
         super(context);
@@ -90,6 +95,8 @@ public final class AstroFocusPanel extends View {
         mPix.setFilterBitmap(false);
         mBar.setColor(Color.rgb(200, 200, 200));
         mBack.setColor(Color.argb(225, 0, 0, 0));
+        mButton.setColor(Color.rgb(60, 60, 60));
+        mSeries = AstroSeries.isRunning() ? null : AstroSeries.describe();
     }
 
     static int panelWidth() {
@@ -97,7 +104,7 @@ public final class AstroFocusPanel extends View {
     }
 
     static int panelHeight() {
-        return PAD + 40 + 3 * (CELL + LABEL) + 2 * GAP + GAP + HIST_H + 34 + 32 + PAD;
+        return PAD + 40 + 3 * (CELL + LABEL) + 2 * GAP + GAP + HIST_H + 34 + 32 + BUTTON_H + PAD;
     }
 
     @Override
@@ -136,12 +143,23 @@ public final class AstroFocusPanel extends View {
         if (mFooter != null) {
             c.drawText(mFooter, PAD, y + HIST_H + 60, mDim);
         }
+        if (mSeries != null) {
+            int top = y + HIST_H + 74;
+            mButtonRect.set(PAD, top, getWidth() - PAD, top + BUTTON_H - 8);
+            c.drawRect(mButtonRect, mButton);
+            c.drawText(mSeries, PAD + 16, top + 38, mText);
+        }
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_UP) {
+            boolean series = mSeries != null
+                    && mButtonRect.contains((int) event.getX(), (int) event.getY());
             dismiss();
+            if (series) {
+                AstroSeries.start((Activity) getContext());
+            }
         }
         return true;
     }

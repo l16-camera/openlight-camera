@@ -46,6 +46,7 @@ public final class AstroNightUi {
     }
 
     public static void detach(Activity activity) {
+        AstroSeries.stop("camera screen closed");
         apply(activity, false);
         AstroAnalyzer.unregister(activity.getApplicationContext());
         sActivity = null;
@@ -97,6 +98,7 @@ public final class AstroNightUi {
             lp.screenBrightness = NIGHT_BRIGHTNESS;
         } else {
             AstroFocusPanel.hide(activity);
+            AstroSeries.stop("left astro mode");
             root.setLayerType(View.LAYER_TYPE_NONE, null);
             lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
         }

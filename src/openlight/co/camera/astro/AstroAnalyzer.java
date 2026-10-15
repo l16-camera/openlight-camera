@@ -139,6 +139,7 @@ public final class AstroAnalyzer {
         } catch (JSONException ignored) {
         }
         final JSONObject result = parsed;
+        AstroSeries.onAnalysed(path, result);
         String head = new File(path).getName().replace(".lri", "");
         if (result != null) {
             double sec = result.optDouble("exposure_ms") / 1000.0;

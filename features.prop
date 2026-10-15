@@ -29,12 +29,19 @@ feature.cli_support=true
 # field. The frame is pulled out afterwards with scripts/lri-mono.
 mono.feature=true
 
-# Astro: manual exposure at 28 mm plus a focus lock that holds across shots and app
-# restarts until the camera is moved (tripod flag lost or re-aimed by more than 3°).
+# Astro: manual exposure at 28 mm plus a focus lock that holds across shots until the
+# camera is moved (tripod flag lost or re-aimed by more than 3°); a camera reopen loses it.
 # See astro-plan.md. On by default; set false to hide the mode.
 astro.feature=true
 # Astro mode turns the whole screen red and dim to keep dark adaptation; false keeps it normal.
 astro.night=true
+# Series from the focus panel: frames, pause between them, dark frames after, and a
+# cooling pause when a frame comes in at or above max_temp (°C).
+astro.series.frames=10
+astro.series.pause_s=0
+astro.series.darks=5
+astro.series.max_temp=48
+astro.series.cool_s=90
 
 # --- Video ---
 # Enable video mode entirely (default: true)
