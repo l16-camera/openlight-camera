@@ -42,6 +42,7 @@
 | [astro-mode.md](astro-mode.md) | пространственный стекинг — складывать модули, а не время |
 | [astro-plan.md](astro-plan.md) | план астрорежима: развилки, этапы, критерии |
 | [focus.md](focus.md) | фокус: кто им управляет, `lens_position` в кадре, ночной промах, блокировка |
+| [shutter-led.md](shutter-led.md) | светодиод кнопки спуска: права sysfs, ритм из приложения, состояния astro |
 | [capture-cycle.md](capture-cycle.md) | спуск: тайминг, что пишется в `.lri`, флаги штатива и склейки |
 | `native/astro-core/` | разбор A2 и солв на камере (Rust → JNI, MIT), сборка `build-android.sh` |
 | [hal-patching.md](hal-patching.md) | патч HAL и драйвера: root, verity, `capture_mask`, видео с нескольких модулей |
