@@ -810,6 +810,12 @@ public abstract class CameraManager {
         CameraMode oldMode = mCamMode;
         mCamMode = mode;
         mCamPref.putValue("camera_mode_setting", mode.toString());
+        // Astro keeps its own shutter, ISO and timer; swap them before the preview reads them.
+        if (oldMode != null && oldMode.isAstro() && !mode.isAstro()) {
+            openlight.co.camera.astro.AstroSettings.onLeave();
+        } else if (mode.isAstro() && (oldMode == null || !oldMode.isAstro())) {
+            openlight.co.camera.astro.AstroSettings.onEnter();
+        }
         if ((CameraMode.isPictureMode(oldMode) && CameraMode.isVideoMode(mCamMode))
                 || (CameraMode.isVideoMode(oldMode) && CameraMode.isPictureMode(mCamMode))) {
             mZoomManager.resetTempZoomLevel();
