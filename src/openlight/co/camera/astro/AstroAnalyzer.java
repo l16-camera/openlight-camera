@@ -1,6 +1,9 @@
 package openlight.co.camera.astro;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Handler;
@@ -32,7 +35,41 @@ public final class AstroAnalyzer {
     private static Handler sWorker;
     private static final Handler sMain = new Handler(Looper.getMainLooper());
 
+    /**
+     * Re-run the analysis on a frame already on the card, for checks without a night:
+     * adb shell am broadcast -a openlight.co.intent.ASTRO_ANALYZE --es path /sdcard/DCIM/Camera/L16_00241.lri
+     * Reads only; works in astro mode, while the camera screen is up.
+     */
+    public static final String ACTION_ANALYZE = "openlight.co.intent.ASTRO_ANALYZE";
+
+    private static BroadcastReceiver sReceiver;
+
     private AstroAnalyzer() {
+    }
+
+    static synchronized void register(Context context) {
+        if (sReceiver != null) {
+            return;
+        }
+        sReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                String path = intent.getStringExtra("path");
+                LogUtil.i(TAG, "[ASTRO] analyse on request: " + path);
+                onSaved(path);
+            }
+        };
+        context.registerReceiver(sReceiver, new IntentFilter(ACTION_ANALYZE));
+    }
+
+    static synchronized void unregister(Context context) {
+        if (sReceiver != null) {
+            try {
+                context.unregisterReceiver(sReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
+            sReceiver = null;
+        }
     }
 
     /** Called with every saved file; acts only on .lri in astro mode. */
@@ -70,6 +107,7 @@ public final class AstroAnalyzer {
         LogUtil.i(TAG, "[ASTRO] " + new File(path).getName() + " analysed in " + ms + " ms: " + json);
         writeSidecar(path, json);
         String text;
+        String sky = null;
         try {
             JSONObject o = new JSONObject(json);
             if (o.optBoolean("ok")) {
@@ -81,12 +119,13 @@ public final class AstroAnalyzer {
                 }
                 JSONObject solve = o.optJSONObject("solve");
                 if (solve != null) {
-                    text += String.format(Locale.ROOT, "\nНебо: RA %.2f° Dec %+.2f°, азимут %.0f°, высота %+.0f° (%d пар)",
+                    sky = String.format(Locale.ROOT, "Небо: RA %.2f° Dec %+.2f°, азимут %.0f°, высота %+.0f° (%d пар)",
                             solve.optDouble("ra"), solve.optDouble("dec"), solve.optDouble("azimuth"),
                             solve.optDouble("altitude"), solve.optInt("pairs"));
                 } else if (o.has("solve_note")) {
-                    text += "\nСолв: " + o.optString("solve_note");
+                    sky = "Солв: " + o.optString("solve_note");
                 }
+                text += "\n" + sky;
             } else {
                 text = "Разбор кадра не удался: " + o.optString("error");
             }
@@ -94,9 +133,41 @@ public final class AstroAnalyzer {
             text = "Разбор кадра не удался";
         }
         final String message = text;
+        JSONObject parsed = null;
+        try {
+            parsed = new JSONObject(json);
+        } catch (JSONException ignored) {
+        }
+        final JSONObject result = parsed;
+        String head = new File(path).getName().replace(".lri", "");
+        if (result != null) {
+            double sec = result.optDouble("exposure_ms") / 1000.0;
+            head += " · " + (sec < 10 ? String.format(Locale.ROOT, "%.2f с", sec)
+                    : String.format(Locale.ROOT, "%.1f с", sec));
+            double fwhm = result.optDouble("fwhm_median", Double.NaN);
+            if (!Double.isNaN(fwhm)) {
+                head += String.format(Locale.ROOT, " · FWHM %.2f px · звёзд %d", fwhm, result.optInt("n_stars"));
+            }
+        }
+        final String title = head;
+        String foot = null;
+        JSONObject solved = result != null ? result.optJSONObject("solve") : null;
+        if (solved != null) {
+            foot = String.format(Locale.ROOT, "RA %.2f° Dec %+.2f° · аз %.0f° выс %+.0f° · %d пар · %.1f с",
+                    solved.optDouble("ra"), solved.optDouble("dec"), solved.optDouble("azimuth"),
+                    solved.optDouble("altitude"), solved.optInt("pairs"), ms / 1000.0);
+        } else if (sky != null) {
+            foot = sky + String.format(Locale.ROOT, " · %.1f с", ms / 1000.0);
+        }
+        final String footer = foot;
         sMain.post(new Runnable() {
             public void run() {
-                Toast.makeText(CameraApp.get(), message, Toast.LENGTH_LONG).show();
+                // The panel carries the same lines; a toast on top of it would hide the stars.
+                if (result == null || !result.optBoolean("ok")
+                        || !CameraManager.getCameraModeOrDefault().isAstro()
+                        || !AstroFocusPanel.show(AstroNightUi.activity(), result, title, footer)) {
+                    Toast.makeText(CameraApp.get(), message, Toast.LENGTH_LONG).show();
+                }
             }
         });
     }

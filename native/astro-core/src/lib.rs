@@ -189,7 +189,39 @@ pub struct Report {
     /// "builtin") and, for factory, its largest deviation from the factory map in px.
     pub lens_source: Option<&'static str>,
     pub lens_fit_px: Option<f64>,
+    /// The focus picture: the frame cut 3×3, row by row from the top left.
+    pub zones: Vec<Zone>,
+    /// 64 bins over the raw 10-bit range, black level included.
+    pub histogram: Vec<u32>,
+    /// Percentage of pixels at the top of the range — clipped.
+    pub clipped_pct: f64,
+    /// Median of a sparse sample of the plane above black, ADU.
+    pub background: f64,
 }
+
+/// One cell of the 3×3 focus grid.
+pub struct Zone {
+    pub n: usize,
+    /// Median FWHM (2·HFR) of the stars in the cell, px; NaN without stars.
+    pub fwhm: f64,
+    /// The brightest unclipped star of the cell, cut CROP×CROP around it.
+    pub crop: Option<Crop>,
+}
+
+pub struct Crop {
+    pub x: f64,
+    pub y: f64,
+    pub fwhm: f64,
+    /// CROP×CROP, row-major, stretched to 0..255 between the cut's median and its peak.
+    pub pixels: Vec<u8>,
+}
+
+/// Side of a star cut-out, px. Wide enough for a star 4–5 px across plus its wings.
+pub const CROP: usize = 21;
+/// The plane's top after black subtraction; a peak above 90 % of it counts as clipped.
+const WHITE: f32 = 1023.0 - BLACK;
+/// Narrower than this is a hot pixel, not a star, px.
+const MIN_STAR_FWHM: f64 = 1.4;
 
 fn median(mut v: Vec<f64>) -> f64 {
     if v.is_empty() {
@@ -227,6 +259,8 @@ pub fn analyze(path: &str, top: usize) -> Result<Report, String> {
 
     let mut sources = s.sources.clone();
     sources.sort_by(|a, b| b.flux.partial_cmp(&a.flux).unwrap());
+    let zones = focus_zones(&data, w, h, &sources);
+    let (histogram, clipped_pct, background) = levels(&raw);
     Ok(Report {
         camera: plane.camera.clone(),
         width: w,
@@ -257,7 +291,74 @@ pub fn analyze(path: &str, top: usize) -> Result<Report, String> {
         solve_note: None,
         lens_source: None,
         lens_fit_px: None,
+        zones,
+        histogram,
+        clipped_pct,
+        background,
     })
+}
+
+/// Sharpness across the frame: per 3×3 cell the median FWHM and one star to look at.
+/// A tilted or decentred lens shows as one side softer; plain defocus as all of it.
+fn focus_zones(data: &[f32], w: usize, h: usize, sources: &[lumina_core::stars::Source]) -> Vec<Zone> {
+    let mut cells: Vec<Vec<&lumina_core::stars::Source>> = vec![Vec::new(); 9];
+    // A star cannot be narrower than about a pixel at f/2; narrower ones are hot pixels
+    // and cosmic hits (L16_00241 had one picked as the "star" of a corner).
+    for s in sources.iter().filter(|s| 2.0 * s.hfr >= MIN_STAR_FWHM) {
+        let cx = ((s.x / w as f64 * 3.0) as usize).min(2);
+        let cy = ((s.y / h as f64 * 3.0) as usize).min(2);
+        cells[cy * 3 + cx].push(s);
+    }
+    cells
+        .into_iter()
+        .map(|cell| {
+            let fwhm = median(cell.iter().map(|s| 2.0 * s.hfr).collect());
+            // Sources come brightest first; take the first that is not clipped and sits
+            // far enough from the edge for a whole cut.
+            let half = (CROP / 2) as f64;
+            let pick = cell.iter().find(|s| {
+                (s.peak as f32) < 0.9 * WHITE
+                    && s.x >= half
+                    && s.y >= half
+                    && s.x < w as f64 - half - 1.0
+                    && s.y < h as f64 - half - 1.0
+            });
+            let crop = pick.map(|s| {
+                let (x0, y0) = (s.x.round() as usize - CROP / 2, s.y.round() as usize - CROP / 2);
+                let mut cut: Vec<f32> = Vec::with_capacity(CROP * CROP);
+                for y in y0..y0 + CROP {
+                    cut.extend_from_slice(&data[y * w + x0..y * w + x0 + CROP]);
+                }
+                let lo = {
+                    let mut v = cut.clone();
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    v[v.len() / 2]
+                };
+                let hi = cut.iter().cloned().fold(f32::MIN, f32::max).max(lo + 1.0);
+                // Square-root stretch: the core and the wings both stay visible.
+                let pixels = cut
+                    .iter()
+                    .map(|&v| (((v - lo) / (hi - lo)).clamp(0.0, 1.0).sqrt() * 255.0).round() as u8)
+                    .collect();
+                Crop { x: s.x, y: s.y, fwhm: 2.0 * s.hfr, pixels }
+            });
+            Zone { n: cell.len(), fwhm, crop }
+        })
+        .collect()
+}
+
+/// Exposure picture of the raw plane: histogram, clipped share, background level.
+fn levels(raw: &[u16]) -> (Vec<u32>, f64, f64) {
+    let mut hist = vec![0u32; 64];
+    let mut clipped = 0usize;
+    for &v in raw {
+        hist[(v as usize >> 4).min(63)] += 1;
+        if v as f32 >= 0.9 * 1023.0 {
+            clipped += 1;
+        }
+    }
+    let sample: Vec<f64> = raw.iter().step_by(97).map(|&v| v as f64 - BLACK as f64).collect();
+    (hist, 100.0 * clipped as f64 / raw.len().max(1) as f64, median(sample))
 }
 
 /// Analyse, then plate-solve from the frame's own time and gravity plus the place the
@@ -381,9 +482,38 @@ impl Report {
         if let Some(n) = &self.solve_note {
             let _ = write!(o, ",\"solve_note\":\"{}\"", n.replace('"', "'"));
         }
+        let _ = write!(o, ",\"clipped_pct\":{},\"background\":{},\"histogram\":[", num(self.clipped_pct), num(self.background));
+        for (i, v) in self.histogram.iter().enumerate() {
+            let _ = write!(o, "{}{v}", if i > 0 { "," } else { "" });
+        }
+        let _ = write!(o, "],\"crop_size\":{CROP},\"zones\":[");
+        for (i, z) in self.zones.iter().enumerate() {
+            let _ = write!(o, "{}{{\"n\":{},\"fwhm\":{}", if i > 0 { "," } else { "" }, z.n, num(z.fwhm));
+            if let Some(c) = &z.crop {
+                let _ = write!(o, ",\"x\":{},\"y\":{},\"star_fwhm\":{},\"crop\":\"{}\"", num(c.x), num(c.y), num(c.fwhm), base64(&c.pixels));
+            }
+            o.push('}');
+        }
+        o.push(']');
         o.push('}');
         o
     }
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut o = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for k in 0..4 {
+            if k <= c.len() {
+                o.push(T[(n >> (18 - 6 * k) & 63) as usize] as char);
+            } else {
+                o.push('=');
+            }
+        }
+    }
+    o
 }
 
 fn error_json(e: &str) -> String {

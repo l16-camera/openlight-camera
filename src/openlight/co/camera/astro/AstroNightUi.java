@@ -41,13 +41,20 @@ public final class AstroNightUi {
     public static void attach(Activity activity) {
         sActivity = new WeakReference<>(activity);
         sApplied = null;
+        AstroAnalyzer.register(activity.getApplicationContext());
         update();
     }
 
     public static void detach(Activity activity) {
         apply(activity, false);
+        AstroAnalyzer.unregister(activity.getApplicationContext());
         sActivity = null;
         sApplied = null;
+    }
+
+    /** The camera activity while it is attached, for astro views. */
+    static Activity activity() {
+        return sActivity != null ? sActivity.get() : null;
     }
 
     private static boolean wanted() {
@@ -89,6 +96,7 @@ public final class AstroNightUi {
             root.setLayerType(View.LAYER_TYPE_HARDWARE, paint);
             lp.screenBrightness = NIGHT_BRIGHTNESS;
         } else {
+            AstroFocusPanel.hide(activity);
             root.setLayerType(View.LAYER_TYPE_NONE, null);
             lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
         }
